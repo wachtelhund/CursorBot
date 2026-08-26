@@ -1,70 +1,84 @@
 # Cursor Bots
 
-Skrivbordsapp med namngivna teammates. Varje bot är en [Cursor Cloud Agent](https://cursor.com/docs/cloud-agent). Usage går mot ditt **Cursor-konto**.
+Desktop app with named teammates. Each bot is a [Cursor Cloud Agent](https://cursor.com/docs/cloud-agent). Usage is billed to your **Cursor account**.
 
 ![Cursor Bots](docs/screenshots/app-main.png)
 
-Sidofält, teamchatt och pixel-art-avatarer:
+Sidebar, team chat, and pixel-art avatars:
 
-![Teamchatt](docs/screenshots/team-chat.png)
+![Team chat](docs/screenshots/team-chat.png)
 
-![Sidolista](docs/screenshots/sidebar-roster.png)
+![Sidebar roster](docs/screenshots/sidebar-roster.png)
 
-## Ladda ner
+## Installation
 
-Installerbara byggen: [github.com/wachtelhund/CursorBot/releases](https://github.com/wachtelhund/CursorBot/releases).
+Download the latest installer from [GitHub Releases](https://github.com/wachtelhund/CursorBot/releases). Pick the file for your machine. GitHub also lists **Source code** zip/tar — that is the repo, not the app.
 
-- **macOS (Apple silicon):** `Cursor-Bots-*-mac-arm64.dmg` — använd den här på M1/M2/M3/M4.
+- **macOS (Apple silicon):** `Cursor-Bots-*-mac-arm64.dmg` — use this on M1/M2/M3/M4
 - **macOS (Intel):** `Cursor-Bots-*-mac-x64.dmg`
-- **Linux:** `Cursor-Bots-*-linux-x64.AppImage`
-- **Windows:** `Cursor-Bots-*-win-x64.exe` (NSIS)
+- **Windows:** `Cursor-Bots-*-win-x64.exe`
+- **Linux:** `Cursor-Bots-*-linux-x86_64.AppImage`
 
-Byggena är **osignerade**. På Windows kan SmartScreen varna.
+**macOS:** open the `.dmg` and drag **Cursor Bots** to Applications.
+
+**Windows:** run the `.exe` installer.
+
+**Linux:** make it executable, then run it:
+
+```bash
+chmod +x Cursor-Bots-*-linux-x86_64.AppImage
+```
+
+Builds are **unsigned**. On Windows, SmartScreen may warn.
 
 ### macOS: “Cursor Bots” is damaged and can’t be opened
 
-Det är **inte** en trasig fil. Gatekeeper sätter karantän (`com.apple.quarantine`) på en osignerad Electron-app som kommer från internet. Dialogrutan *You should move it to the Trash* är fel råd.
+The file is not corrupt. Gatekeeper quarantines (`com.apple.quarantine`) an unsigned Electron app downloaded from the internet. *Move to Trash* is the wrong advice.
 
-1. Klicka **Avbryt / Cancel**. Flytta **inte** appen till Papperskorgen.
-2. Öppna Terminal och kör:
+1. Click **Cancel**. Do **not** move the app to the Trash.
+2. In Terminal:
 
 ```bash
 xattr -cr "/Applications/Cursor Bots.app"
 ```
 
-3. Öppna **Cursor Bots** igen.
+3. Open **Cursor Bots** again.
 
-**English:** Cancel — do not Move to Trash. Then run `xattr -cr "/Applications/Cursor Bots.app"` and open the app. On Apple Silicon, install the `arm64` `.dmg`.
+### Updates
 
-En release skapas när du pushar en tagg `v*` (t.ex. `v0.1.1`) eller publicerar en GitHub Release. Workflow **Release** kan också köras manuellt under Actions — då landar filerna som artifacts, inte som en GitHub Release.
+In the app, Settings → **Check for updates**, or the **Update to x.y.z** banner, opens the next GitHub release page. It does not install the update for you.
 
-## Kör lokalt
+A GitHub Release is created when you push a `v*` tag (e.g. `v0.1.1`) or publish a release. The **Release** workflow can also be run by hand from Actions — then files land as workflow artifacts, not on a GitHub Release.
+
+## Run locally
 
 ```bash
 npm install
-npm run dev
+env -u ELECTRON_RUN_AS_NODE npm run dev
+npm test
+npm run typecheck
 ```
 
-I appen: kugghjul → klistra in en API-nyckel från [cursor.com/dashboard/api](https://cursor.com/dashboard/api).
+In the app: gear → paste an API key from [cursor.com/dashboard/api](https://cursor.com/dashboard/api).
 
-`ELECTRON_RUN_AS_NODE` måste vara av (`npm run dev` tar bort den).
+`ELECTRON_RUN_AS_NODE` must be unset (`npm run dev` clears it).
 
 ## Team
 
-Öppna **Team** i sidofältet. En egen rad `@Research gör X` eller `@Research: gör X` startar den boten. `@alla` på egen rad tar alla. `@Namn` mitt i en mening väcker ingen. Bottarna kan skriva `@Namn: …` till varandra.
+Open **Team** in the sidebar. A line `@Research do X` or `@Research: do X` wakes that bot. `@alla` on its own line wakes everyone. Mid-sentence `@Name` wakes no one. Bots can write `@Name: …` to each other.
 
-Inloggning till GitHub, AWS och Cloudflare görs i Cursor, inte här. Delade tokens lägger du under Inställningar.
+GitHub, AWS, and Cloudflare logins happen in Cursor, not here. Shared tokens go under Settings.
 
-## Bygg
+## Build
 
 ```bash
 npm run dist
 ```
 
-Bygget läggs i `release/`.
+Output lands in `release/`.
 
 ## Usage
 
-Körningar syns på [cursor.com/dashboard/usage](https://cursor.com/dashboard/usage) under **SDK**, och på [cursor.com/agents](https://cursor.com/agents) med **Source → SDK**.
+Runs show up on [cursor.com/dashboard/usage](https://cursor.com/dashboard/usage) under **SDK**, and on [cursor.com/agents](https://cursor.com/agents) with **Source → SDK**.
 
-Ikoner är anpassade från [LibreChat](https://github.com/danny-avila/LibreChat) (MIT). Se `THIRD_PARTY.md`.
+Icons are adapted from [LibreChat](https://github.com/danny-avila/LibreChat) (MIT). See `THIRD_PARTY.md`.
