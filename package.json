@@ -50,8 +50,10 @@
     "asarUnpack": [
       "node_modules/@cursor/**"
     ],
+    "artifactName": "Cursor-Bots-${version}-${os}-${arch}.${ext}",
     "mac": {
       "icon": "build/icon.icns",
+      "identity": null,
       "category": "public.app-category.productivity",
       "extendInfo": {
         "CFBundleName": "Cursor Bots",

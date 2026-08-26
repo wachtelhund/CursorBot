@@ -10,6 +10,18 @@ Sidofält, teamchatt och pixel-art-avatarer:
 
 ![Sidolista](docs/screenshots/sidebar-roster.png)
 
+## Ladda ner
+
+Installerbara byggen: [github.com/wachtelhund/CursorBot/releases](https://github.com/wachtelhund/CursorBot/releases).
+
+- **macOS:** `Cursor-Bots-*-mac-arm64.dmg` (Apple silicon) och `Cursor-Bots-*-mac-x64.dmg` (Intel). Även `.zip`.
+- **Linux:** `Cursor-Bots-*-linux-x64.AppImage`
+- **Windows:** `Cursor-Bots-*-win-x64.exe` (NSIS)
+
+Byggena är **osignerade**. På macOS: högerklicka → Öppna om Gatekeeper stoppar. På Windows kan SmartScreen varna.
+
+En release skapas när du pushar en tagg `v*` (t.ex. `v0.1.0`) eller publicerar en GitHub Release. Workflow **Release** kan också köras manuellt under Actions — då landar filerna som artifacts, inte som en GitHub Release.
+
 ## Kör lokalt
 
 ```bash
