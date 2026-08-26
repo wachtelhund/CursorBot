@@ -3,13 +3,7 @@ import { test } from "node:test";
 import { needsThreadStamp, threadClock, type TimeCopy } from "../renderer/src/time.ts";
 
 const now = new Date(2026, 7, 26, 10, 0, 0);
-const sv: TimeCopy = { locale: "sv-SE", today: "Idag", yesterday: "Igår" };
 const en: TimeCopy = { locale: "en-US", today: "Today", yesterday: "Yesterday" };
-
-test("threadClock uses Idag / Igår plus clock time", () => {
-  assert.equal(threadClock("2026-08-26T08:51:00", now, sv), "Idag 8:51");
-  assert.equal(threadClock("2026-08-25T20:03:00", now, sv), "Igår 20:03");
-});
 
 test("threadClock follows English copy", () => {
   assert.equal(threadClock("2026-08-26T08:51:00", now, en), "Today 8:51");

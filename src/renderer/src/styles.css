@@ -458,6 +458,27 @@ code {
   color: #6a6a6a;
 }
 
+.composer-steer {
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #9a9a9a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.composer-steer:hover:not(:disabled) {
+  background: #2a2a2a;
+  color: #ececec;
+}
+
+.composer-steer:disabled {
+  color: #6a6a6a;
+}
+
 .composer-send {
   display: grid;
   flex-shrink: 0;

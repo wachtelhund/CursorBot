@@ -71,7 +71,7 @@ export function registerIpc(): void {
   ipcMain.handle("groups:list", async () => listGroups());
 
   ipcMain.handle("groups:create", async (event, input: CreateGroupInput) => {
-    if (!input?.name?.trim()) throw new Error("Namn krävs");
+    if (!input?.name?.trim()) throw new Error("Name is required");
     const group = await createGroup({
       name: input.name,
       botIds: Array.isArray(input.botIds) ? input.botIds.map(String) : [],
@@ -84,7 +84,7 @@ export function registerIpc(): void {
 
   ipcMain.handle("groups:delete", async (event, groupId: string) => {
     const group = await deleteGroup(String(groupId ?? ""));
-    if (!group) throw new Error("Gruppen finns inte");
+    if (!group) throw new Error("Group does not exist");
     if (!event.sender.isDestroyed()) {
       event.sender.send("bots:event", { type: "group-deleted", groupId: group.id });
     }
@@ -98,7 +98,7 @@ export function registerIpc(): void {
         String(payload?.groupId ?? ""),
         String(payload?.name ?? ""),
       );
-      if (!group) throw new Error("Gruppen finns inte");
+      if (!group) throw new Error("Group does not exist");
       if (!event.sender.isDestroyed()) {
         event.sender.send("bots:event", { type: "group", group });
       }
@@ -110,7 +110,7 @@ export function registerIpc(): void {
     "bots:pin",
     async (_event, payload: { botId: string; pinned: boolean }) => {
       const bot = await setPinned(String(payload?.botId ?? ""), Boolean(payload?.pinned));
-      if (!bot) throw new Error("Botten finns inte");
+      if (!bot) throw new Error("Bot does not exist");
       return bot;
     },
   );
@@ -119,7 +119,7 @@ export function registerIpc(): void {
     "bots:rename",
     async (event, payload: { botId: string; name: string }) => {
       const bot = await renameBot(String(payload?.botId ?? ""), String(payload?.name ?? ""));
-      if (!bot) throw new Error("Botten finns inte");
+      if (!bot) throw new Error("Bot does not exist");
       if (!event.sender.isDestroyed()) {
         event.sender.send("bots:event", { type: "bot", bot });
       }
@@ -142,7 +142,7 @@ export function registerIpc(): void {
         patch.character = raw.character as BuddyKind;
       }
       const bot = await updateBot(String(payload?.botId ?? ""), patch);
-      if (!bot) throw new Error("Botten finns inte");
+      if (!bot) throw new Error("Bot does not exist");
       if (!event.sender.isDestroyed()) {
         event.sender.send("bots:event", { type: "bot", bot });
       }
@@ -157,7 +157,7 @@ export function registerIpc(): void {
         name: typeof payload?.name === "string" ? payload.name : undefined,
         botIds: Array.isArray(payload?.botIds) ? payload.botIds.map(String) : undefined,
       });
-      if (!group) throw new Error("Gruppen finns inte");
+      if (!group) throw new Error("Group does not exist");
       if (!event.sender.isDestroyed()) {
         event.sender.send("bots:event", { type: "group", group });
       }
@@ -167,20 +167,20 @@ export function registerIpc(): void {
 
   ipcMain.handle("bots:openAgent", async (_event, botId: string) => {
     const bot = await getBot(String(botId ?? ""));
-    if (!bot) throw new Error("Botten finns inte");
-    if (!bot.agentId?.trim()) throw new Error("Botten har ingen cloud agent");
+    if (!bot) throw new Error("Bot does not exist");
+    if (!bot.agentId?.trim()) throw new Error("This bot has no Cloud Agent");
     return openCloudAgent(bot.agentId);
   });
 
   ipcMain.handle("bots:create", async (_event, input: CreateBotInput) => {
-    if (!input?.name?.trim()) throw new Error("Namn krävs");
+    if (!input?.name?.trim()) throw new Error("Name is required");
     return createBot(input);
   });
 
   ipcMain.handle("bots:delete", async (_event, botId: string) => {
     await releaseBotAgent(botId);
     const bot = await deleteBot(botId);
-    if (!bot) throw new Error("Botten finns inte");
+    if (!bot) throw new Error("Bot does not exist");
     if (bot.agentId && (await hasApiKey())) {
       try {
         await Agent.archive(bot.agentId, { apiKey: await requireApiKey() });
@@ -193,7 +193,7 @@ export function registerIpc(): void {
 
   ipcMain.handle("bots:usage", async (_event, botId: string) => {
     const bot = await getBot(botId);
-    if (!bot) throw new Error("Botten finns inte");
+    if (!bot) throw new Error("Bot does not exist");
     if (!bot.agentId) return null;
     try {
       return await Agent.getUsage(bot.agentId, { apiKey: await requireApiKey() });
@@ -214,12 +214,12 @@ export function registerIpc(): void {
     "bots:send",
     async (event, payload: SendMessageInput | string, maybeText?: string) => {
       const parsed = parseSendPayload(payload, maybeText);
-      if (!parsed.text) throw new Error("Meddelande krävs");
+      if (!parsed.text) throw new Error("Message is required");
 
       const bots = await listBots();
-      if (bots.length === 0) throw new Error("Skapa en bot först");
+      if (bots.length === 0) throw new Error("Create a bot first");
       if (parsed.botId && !bots.some((bot) => bot.id === parsed.botId)) {
-        throw new Error("Botten finns inte");
+        throw new Error("Bot does not exist");
       }
 
       const donor =
@@ -237,13 +237,13 @@ export function registerIpc(): void {
           : destId
             ? await getGroup(destId)
             : undefined;
-      if (parsed.groupId && !group) throw new Error("Gruppen finns inte");
+      if (parsed.groupId && !group) throw new Error("Group does not exist");
 
       const pool = group
         ? fresh.filter((bot) => group.botIds.includes(bot.id))
         : fresh;
       if (pool.length === 0) {
-        throw new Error(group ? "Gruppen är tom" : "Skapa en bot först");
+        throw new Error(group ? "This group is empty" : "Create a bot first");
       }
 
       const roster = pool.map((bot) => ({ id: bot.id, name: bot.name }));
@@ -265,7 +265,7 @@ export function registerIpc(): void {
       ) {
         await postLog(event.sender, group?.id, {
           from: "user",
-          name: "Du",
+          name: "You",
           content: parsed.text,
           toBotIds: targetIds,
         });
@@ -278,6 +278,7 @@ export function registerIpc(): void {
           "user",
           parsed.botId ? undefined : group?.id,
           Boolean(parsed.botId),
+          parsed.sendMode,
         );
         return { targetIds };
       }

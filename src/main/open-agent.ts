@@ -33,7 +33,7 @@ export function cursorDesktopInstalled(): boolean {
 
 export async function openCloudAgent(agentId: string): Promise<"desktop" | "web"> {
   const id = agentId.trim();
-  if (!id) throw new Error("Botten har ingen cloud agent");
+  if (!id) throw new Error("This bot has no Cloud Agent");
   const desktop = agentDesktopUrl(id);
   const web = agentWebUrl(id);
 

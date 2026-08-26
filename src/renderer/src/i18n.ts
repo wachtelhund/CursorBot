@@ -1,41 +1,14 @@
-import { useEffect, useState } from "react";
 import { LANG_STORAGE_KEY, resolveLang, type Lang } from "@shared/lang";
 import type { TimeCopy } from "./time";
 
 export type { Lang };
 export { LANG_STORAGE_KEY, resolveLang };
 
-const listeners = new Set<() => void>();
-
-function readStored(): string | null {
-  try {
-    return localStorage.getItem(LANG_STORAGE_KEY);
-  } catch {
-    return null;
-  }
+if (typeof document !== "undefined") {
+  document.documentElement.lang = "en";
 }
-
-function writeStored(lang: Lang): void {
-  try {
-    localStorage.setItem(LANG_STORAGE_KEY, lang);
-  } catch {
-    // Ignore quota / private mode.
-  }
-}
-
-function applyDocumentLang(lang: Lang): void {
-  if (typeof document !== "undefined") {
-    document.documentElement.lang = lang;
-  }
-}
-
-let current: Lang = resolveLang(typeof localStorage !== "undefined" ? readStored() : null);
-applyDocumentLang(current);
 
 export const en = {
-  language: "Language",
-  languageEn: "English",
-  languageSv: "Svenska",
   settings: "Settings",
   updates: "Updates",
   currentVersion: "Version {version}",
@@ -96,6 +69,10 @@ export const en = {
   couldNotOpenAgent: "Could not open in Cursor",
   noCloudAgent: "This bot has no Cloud Agent",
   send: "Send",
+  queue: "Queue",
+  steer: "Steer",
+  queueTitle: "Queue · Enter",
+  steerTitle: "Steer · {shortcut}",
   open: "Open",
   name: "Name",
   role: "Role",
@@ -117,7 +94,7 @@ export const en = {
   resizeSidebarAria: "Resize sidebar",
   resizeSidebarTitle: "Drag to resize",
   composerHint:
-    "@name assigns · @alla everyone · @team Name: members creates a group · Enter sends",
+    "@name assigns · @all everyone · @new Name: role · @team Name: members · Enter queues · {shortcut} steers",
   nameForMentions: "The name is used for @mentions.",
   rolePlaceholder: "Gathers sources and leaves a short briefing.",
   repoUrlOptional: "Repo URL (optional)",
@@ -144,7 +121,7 @@ export const en = {
   emptyTeamLead: "Each bot is a Cursor Cloud Agent. They can @-mention each other in Team.",
   teamThreadEmpty: "The team thread is empty",
   giveJob: "Give {name} a job",
-  teamEmptyHint: "Type @Chief or @alla. Bots reply here and can hand off to each other.",
+  teamEmptyHint: "Type @Chief or @all. Bots reply here and can hand off to each other.",
   botEmptyHint: "A Cursor Cloud Agent. @-mention a teammate if it needs help.",
   teamPlaceholder: "Message the team",
   botPlaceholder: "Message {name}",
@@ -159,134 +136,6 @@ export const en = {
   messagedBots: "{n} Bots",
 };
 
-export const sv: { [K in keyof typeof en]: string } = {
-  language: "Språk",
-  languageEn: "English",
-  languageSv: "Svenska",
-  settings: "Inställningar",
-  updates: "Uppdateringar",
-  currentVersion: "Version {version}",
-  checkForUpdates: "Sök efter uppdateringar",
-  checkingForUpdates: "Söker…",
-  upToDate: "Du har den senaste versionen ({version})",
-  updateAvailable: "Version {version} finns tillgänglig",
-  updateTo: "Uppdatera till {version}",
-  openRelease: "Öppna release",
-  updateCheckFailed: "Kunde inte söka efter uppdateringar",
-  team: "Team",
-  chats: "Chattar",
-  newBot: "Ny bot",
-  createBot: "Skapa bot",
-  newGroup: "Ny grupp",
-  createGroup: "Skapa grupp",
-  groups: "Grupper",
-  groupName: "Gruppnamn",
-  members: "Medlemmar",
-  pickMembers: "Välj vilka som är med i gruppen.",
-  groupMembers: "{n} medlemmar",
-  deleteGroupConfirm: "Ta bort {name}?",
-  couldNotCreateGroup: "Kunde inte skapa gruppen",
-  restartAppWindow:
-    "Appfönstret måste stängas helt och öppnas igen. Det räcker inte att ladda om sidan.",
-  noMembersSelected: "Välj minst en bot",
-  groupThreadEmpty: "Gruppen är tom",
-  groupEmptyHint: "Skriv till gruppen. @namn ger jobbet.",
-  groupPlaceholder: "Meddelande till {name}",
-  create: "Skapa",
-  cancel: "Avbryt",
-  delete: "Ta bort",
-  pin: "Fäst",
-  unpin: "Ta loss",
-  moreActions: "Fler åtgärder",
-  rename: "Byt namn",
-  renameBotPrompt: "Byt namn på bot",
-  renameGroupPrompt: "Byt namn på grupp",
-  edit: "Redigera",
-  editBot: "Redigera bot",
-  editGroup: "Redigera grupp",
-  save: "Spara",
-  description: "Beskrivning",
-  profilePhoto: "Profilbild",
-  uploadPhoto: "Ladda upp bild",
-  removePhoto: "Ta bort bild",
-  photoTooLarge: "Bilden är för stor (max 300 kB).",
-  character: "Karaktär",
-  startingRefOptional: "Starting ref (valfritt)",
-  cloudAgent: "Cloud Agent",
-  copyAgentLink: "Kopiera Cloud Agent-länk",
-  usage: "Användning",
-  usageTokens: "{n} tokens",
-  noUsageYet: "Ingen användning än",
-  nameRequired: "Namn krävs",
-  openInCursor: "Öppna i Cursor",
-  couldNotRename: "Kunde inte byta namn",
-  couldNotOpenAgent: "Kunde inte öppna i Cursor",
-  noCloudAgent: "Boten har ingen Cloud Agent",
-  send: "Skicka",
-  open: "Öppna",
-  name: "Namn",
-  role: "Roll",
-  model: "Modell",
-  you: "Du",
-  today: "Idag",
-  yesterday: "Igår",
-  thinking: "Tänker…",
-  thinkingCount: "{n} tänker",
-  noActivity: "Ingen aktivitet än",
-  showSidebar: "Visa sidofält",
-  hideSidebar: "Dölj sidofält",
-  searchBots: "Sök bots",
-  teamAllThread: "Alla bottar i samma tråd",
-  noBotsYet: "Inga bots än.",
-  noMatches: "Inga träffar.",
-  pinned: "Fästa",
-  recent: "Senaste",
-  resizeSidebarAria: "Ändra sidofältets bredd",
-  resizeSidebarTitle: "Dra för att ändra bredd",
-  composerHint:
-    "@namn ger jobbet · @alla tar alla · @team Namn: medlemmar skapar grupp · Enter skickar",
-  nameForMentions: "Namnet används för @mentions.",
-  rolePlaceholder: "Samlar källor och lämnar en kort briefing.",
-  repoUrlOptional: "Repo-URL (valfritt)",
-  cursorApiKey: "Cursor API-nyckel",
-  apiKeyHelp: "Sparad lokalt. Usage går mot ditt Cursor-konto.",
-  pasteToReplace: "Klistra in för att byta",
-  saveKey: "Spara nyckel",
-  sharedSecrets: "Delade secrets",
-  secretsHelp:
-    "Tokens som alla bots får som miljövariabler. GitHub, AWS och Cloudflare loggar du in i Cursor.",
-  openCursorDashboard: "Öppna Cursor-dashboard",
-  leaveEmptyToKeep: "Lämna tomt för att behålla",
-  value: "Värde",
-  saveSecret: "Spara secret",
-  couldNotSave: "Kunde inte spara",
-  couldNotDelete: "Kunde inte ta bort",
-  couldNotCreateBot: "Kunde inte skapa botten",
-  deleteBotConfirm: "Ta bort {name}? Cloud-agenten arkiveras.",
-  couldNotSend: "Kunde inte skicka",
-  keySavedModelsFailed: "Nyckeln sparades, men modellistan gick inte att hämta.",
-  startSomeone: "Skriv @namn för att sätta igång någon",
-  pasteApiKey: "Klistra in en Cursor API-nyckel.",
-  buildATeam: "Bygg ett team",
-  emptyTeamLead: "Varje bot är en Cursor Cloud Agent. De kan @-pinga varandra i Team.",
-  teamThreadEmpty: "Teamtråden är tom",
-  giveJob: "Ge {name} ett jobb",
-  teamEmptyHint:
-    "Skriv @Chief eller @alla. Bottarna svarar här och kan skicka vidare till varandra.",
-  botEmptyHint: "En Cursor Cloud Agent. @-pinga en teammate om den behöver hjälp.",
-  teamPlaceholder: "Meddelande till teamet",
-  botPlaceholder: "Meddelande till {name}",
-  theBot: "boten",
-  fromTeammate: "{name} · från teammate",
-  messageFrom: "Meddelande från {name}",
-  collapseMessages: "{n} meddelanden med",
-  collapseBots: "{n} bottar",
-  collapseShow: "Visa dolda meddelanden",
-  collapseHide: "Dölj meddelanden",
-  messaged: "Skickade till",
-  messagedBots: "{n} bottar",
-};
-
 export type MsgKey = keyof typeof en;
 
 function fill(template: string, vars?: Record<string, string | number>): string {
@@ -297,44 +146,25 @@ function fill(template: string, vars?: Record<string, string | number>): string 
 }
 
 export function getLang(): Lang {
-  return current;
+  return resolveLang();
 }
 
-export function localeTag(lang: Lang = current): string {
-  return lang === "sv" ? "sv-SE" : "en-US";
+export function localeTag(_lang: Lang = "en"): string {
+  return "en-US";
 }
 
-export function timeCopy(lang: Lang = current): TimeCopy {
-  const dict = lang === "sv" ? sv : en;
+export function timeCopy(_lang: Lang = "en"): TimeCopy {
   return {
-    locale: localeTag(lang),
-    today: dict.today,
-    yesterday: dict.yesterday,
+    locale: localeTag(),
+    today: en.today,
+    yesterday: en.yesterday,
   };
 }
 
 export function t(key: MsgKey, vars?: Record<string, string | number>): string {
-  const dict = current === "sv" ? sv : en;
-  return fill(dict[key] ?? en[key], vars);
+  return fill(en[key], vars);
 }
 
-export function setLang(next: Lang): void {
-  if (next === current) return;
-  current = next;
-  writeStored(next);
-  applyDocumentLang(next);
-  for (const listener of listeners) listener();
-}
-
-export function subscribeLang(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-export function useLang(): { lang: Lang; setLang: typeof setLang } {
-  const [lang, setLangState] = useState(current);
-  useEffect(() => subscribeLang(() => setLangState(getLang())), []);
-  return { lang, setLang };
+export function useLang(): { lang: Lang } {
+  return { lang: "en" };
 }

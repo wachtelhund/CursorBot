@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { AppSettings, SecretName } from "@shared/types";
 import type { UpdateCheckResult } from "@shared/updates";
-import { t, useLang } from "./i18n";
+import { t } from "./i18n";
 import { CrossIcon } from "./icons";
 
 type CheckStatus = "idle" | "checking" | "current" | "available" | "error";
@@ -29,7 +29,6 @@ export function SettingsPanel({
   onUpdateResult,
   onClose,
 }: SettingsPanelProps) {
-  const { lang, setLang } = useLang();
   const [secretName, setSecretName] = useState("");
   const [secretValue, setSecretValue] = useState("");
   const [secretError, setSecretError] = useState<string | null>(null);
@@ -106,35 +105,6 @@ export function SettingsPanel({
         </div>
 
         <div className="mt-4">
-          <h3 className="text-[13px] font-medium text-ink">{t("language")}</h3>
-          <p className="mt-1 text-[13px] text-mute">
-            {lang === "sv" ? t("languageSv") : t("languageEn")}
-          </p>
-          <div className="mt-2 flex gap-2">
-            <button
-              type="button"
-              onClick={() => setLang("en")}
-              className={`rounded-full px-3 py-1.5 text-sm ${
-                lang === "en" ? "bg-white/10 text-ink" : "text-mute hover:text-ink"
-              }`}
-              aria-pressed={lang === "en"}
-            >
-              EN
-            </button>
-            <button
-              type="button"
-              onClick={() => setLang("sv")}
-              className={`rounded-full px-3 py-1.5 text-sm ${
-                lang === "sv" ? "bg-white/10 text-ink" : "text-mute hover:text-ink"
-              }`}
-              aria-pressed={lang === "sv"}
-            >
-              SV
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-6 border-t border-line pt-5">
           <h3 className="text-[13px] font-medium text-ink">{t("updates")}</h3>
           {appVersion && (
             <p className="mt-1 text-[13px] text-mute">

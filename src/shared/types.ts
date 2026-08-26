@@ -1,3 +1,5 @@
+import type { SendMode } from "./send-mode";
+
 export const TEAM_SCOPE = "team";
 
 export const BUDDY_KINDS = [
@@ -99,6 +101,7 @@ export type SendMessageInput = {
   text: string;
   botId?: string;
   groupId?: string;
+  sendMode?: SendMode;
 };
 
 export type ModelOption = {

@@ -141,11 +141,11 @@ export async function createBot(input: CreateBotInput): Promise<Bot> {
   return withLock(async () => {
     const store = await readStore();
     const name = input.name.trim();
-    if (!name) throw new Error("Namn krävs");
+    if (!name) throw new Error("Name is required");
     const taken = store.bots.some(
       (bot) => bot.name.toLowerCase() === name.toLowerCase(),
     );
-    if (taken) throw new Error("Namnet är upptaget");
+    if (taken) throw new Error("Name is taken");
 
     const now = new Date().toISOString();
     const bot: Bot = {
@@ -189,8 +189,8 @@ export async function updateBot(
     if (!bot) return undefined;
     if (patch.name !== undefined) {
       const next = patch.name.trim();
-      if (!next) throw new Error("Namn krävs");
-      if (nameTaken(store.bots, botId, next)) throw new Error("Namnet är upptaget");
+      if (!next) throw new Error("Name is required");
+      if (nameTaken(store.bots, botId, next)) throw new Error("Name is taken");
       bot.name = next;
     }
     if (patch.role !== undefined) bot.role = patch.role.trim();
@@ -219,8 +219,8 @@ export async function renameBot(
     const bot = store.bots.find((item) => item.id === botId);
     if (!bot) return undefined;
     const next = name.trim();
-    if (!next) throw new Error("Namn krävs");
-    if (nameTaken(store.bots, botId, next)) throw new Error("Namnet är upptaget");
+    if (!next) throw new Error("Name is required");
+    if (nameTaken(store.bots, botId, next)) throw new Error("Name is taken");
     bot.name = next;
     bot.updatedAt = new Date().toISOString();
     await writeStore(store);
@@ -237,9 +237,9 @@ export async function renameGroup(
     const group = store.groups.find((item) => item.id === groupId);
     if (!group) return undefined;
     const next = name.trim();
-    if (!next) throw new Error("Namn krävs");
+    if (!next) throw new Error("Name is required");
     if (nameTaken(store.groups, groupId, next)) {
-      throw new Error("Gruppnamnet är upptaget");
+      throw new Error("Group name is taken");
     }
     group.name = next;
     group.updatedAt = new Date().toISOString();
@@ -285,16 +285,16 @@ export async function createGroup(input: CreateGroupInput): Promise<BotGroup> {
   return withLock(async () => {
     const store = await readStore();
     const name = input.name.trim();
-    if (!name) throw new Error("Namn krävs");
+    if (!name) throw new Error("Name is required");
     const taken = store.groups.some(
       (group) => group.name.toLowerCase() === name.toLowerCase(),
     );
-    if (taken) throw new Error("Gruppnamnet är upptaget");
+    if (taken) throw new Error("Group name is taken");
 
     const botIds = [...new Set(input.botIds)].filter((botId) =>
       store.bots.some((bot) => bot.id === botId),
     );
-    if (botIds.length === 0) throw new Error("Välj minst en bot");
+    if (botIds.length === 0) throw new Error("Pick at least one bot");
 
     const now = new Date().toISOString();
     const group: BotGroup = {
@@ -321,9 +321,9 @@ export async function updateGroup(
     if (!group) return undefined;
     if (patch.name !== undefined) {
       const next = patch.name.trim();
-      if (!next) throw new Error("Namn krävs");
+      if (!next) throw new Error("Name is required");
       if (nameTaken(store.groups, groupId, next)) {
-        throw new Error("Gruppnamnet är upptaget");
+        throw new Error("Group name is taken");
       }
       group.name = next;
     }
@@ -331,7 +331,7 @@ export async function updateGroup(
       const botIds = [...new Set(patch.botIds)].filter((botId) =>
         store.bots.some((bot) => bot.id === botId),
       );
-      if (botIds.length === 0) throw new Error("Välj minst en bot");
+      if (botIds.length === 0) throw new Error("Pick at least one bot");
       group.botIds = botIds;
     }
     group.updatedAt = new Date().toISOString();

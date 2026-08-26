@@ -151,9 +151,13 @@ test("handoffRecipientIds uses the reply author when the assignment is missing",
 });
 
 test("isRosterNotice matches spawn and group echoes only", () => {
+  assert.equal(isRosterNotice("Chief created App"), true);
+  assert.equal(isRosterNotice("You added Tester to App"), true);
+  assert.equal(isRosterNotice("No bot matched in App"), true);
+  assert.equal(isRosterNotice("Group App does not exist"), true);
   assert.equal(isRosterNotice("Chefen skapade App"), true);
   assert.equal(isRosterNotice("Du la till Apptestare i App"), true);
-  assert.equal(isRosterNotice("Jag skapade en plan för releasen."), false);
+  assert.equal(isRosterNotice("I created a plan for the release."), false);
 });
 
 test("isInspectMessage hides assignments, roster echoes, and empty hops", () => {

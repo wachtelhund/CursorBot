@@ -1,7 +1,8 @@
-import { AgentBusyError, AgentNotFoundError, CursorAgentError } from "@cursor/sdk";
+import { AgentBusyError, AgentNotFoundError, CursorAgentError, type Run } from "@cursor/sdk";
 import type { WebContents } from "electron";
 import { parseGroupCommands } from "../shared/groups";
 import { publicBotText } from "../shared/mentions";
+import { sendDelivery, type SendMode } from "../shared/send-mode";
 import {
   deliveryPlan,
   incomingHopContent,
@@ -43,11 +44,14 @@ export type Wake = {
   groupId?: string;
   dm?: boolean;
   originBotId?: string;
+  sendMode?: SendMode;
 };
 
-const tails = new Map<string, Promise<unknown>>();
 const inflight = new Set<string>();
-const pending = new Map<string, number>();
+const waiting = new Map<string, Array<{ job: () => Promise<void>; steer: boolean }>>();
+const busy = new Set<string>();
+const activeRuns = new Map<string, Run>();
+const turnGen = new Map<string, number>();
 
 function emit(sender: WebContents, event: StreamEvent) {
   if (sender.isDestroyed()) return;
@@ -55,28 +59,58 @@ function emit(sender: WebContents, event: StreamEvent) {
 }
 
 function queuedCount(botId: string): number {
-  return pending.get(botId) ?? 0;
+  return (waiting.get(botId)?.length ?? 0) + (busy.has(botId) ? 1 : 0);
 }
 
-function enqueue(botId: string, task: () => Promise<void>): void {
-  pending.set(botId, queuedCount(botId) + 1);
-  const prev = tails.get(botId) ?? Promise.resolve();
-  const next = prev.then(task, task);
-  tails.set(
-    botId,
-    next.then(
-      () => {
-        const left = queuedCount(botId) - 1;
-        if (left <= 0) pending.delete(botId);
-        else pending.set(botId, left);
-      },
-      () => {
-        const left = queuedCount(botId) - 1;
-        if (left <= 0) pending.delete(botId);
-        else pending.set(botId, left);
-      },
-    ),
-  );
+function enqueue(botId: string, job: () => Promise<void>, steer = false): void {
+  const list = waiting.get(botId) ?? [];
+  if (steer) {
+    const index = list.findIndex((item) => !item.steer);
+    if (index === -1) list.push({ job, steer: true });
+    else list.splice(index, 0, { job, steer: true });
+  } else {
+    list.push({ job, steer: false });
+  }
+  waiting.set(botId, list);
+  void pump(botId);
+}
+
+async function pump(botId: string): Promise<void> {
+  if (busy.has(botId)) return;
+  const list = waiting.get(botId);
+  if (!list?.length) {
+    waiting.delete(botId);
+    return;
+  }
+  const next = list.shift()!;
+  if (list.length === 0) waiting.delete(botId);
+  busy.add(botId);
+  try {
+    await next.job();
+  } finally {
+    busy.delete(botId);
+    await pump(botId);
+  }
+}
+
+function bumpTurn(botId: string): number {
+  const next = (turnGen.get(botId) ?? 0) + 1;
+  turnGen.set(botId, next);
+  return next;
+}
+
+function isSuperseded(botId: string, gen: number): boolean {
+  return (turnGen.get(botId) ?? 0) !== gen;
+}
+
+async function cancelActiveRun(botId: string): Promise<void> {
+  const run = activeRuns.get(botId);
+  if (!run?.supports("cancel")) return;
+  try {
+    await run.cancel();
+  } catch {
+    // Run may already be terminal.
+  }
 }
 
 function coalesceKey(wake: Wake): string {
@@ -131,7 +165,7 @@ function emitQueued(sender: WebContents, botId: string): void {
     type: "status",
     botId,
     status: "queued",
-    message: "Väntar på förra körningen",
+    message: "Waiting for the previous run",
   });
 }
 
@@ -141,16 +175,34 @@ export function wake(input: Wake): void {
   const key = coalesceKey({ ...input, text });
   if (inflight.has(key)) return;
   inflight.add(key);
-  if (queuedCount(input.botId) > 0) {
+  const steer =
+    input.source === "user" && sendDelivery(input.sendMode ?? "queue").cancelActive;
+  if (steer) {
+    bumpTurn(input.botId);
+    void cancelActiveRun(input.botId);
+    if (queuedCount(input.botId) > 0) {
+      emit(input.sender, { type: "thinking", botId: input.botId, thinking: true });
+      emit(input.sender, {
+        type: "status",
+        botId: input.botId,
+        status: "starting",
+        message: "Steering…",
+      });
+    }
+  } else if (queuedCount(input.botId) > 0) {
     emitQueued(input.sender, input.botId);
   }
-  enqueue(input.botId, async () => {
-    try {
-      await runTurn({ ...input, text });
-    } finally {
-      inflight.delete(key);
-    }
-  });
+  enqueue(
+    input.botId,
+    async () => {
+      try {
+        await runTurn({ ...input, text });
+      } finally {
+        inflight.delete(key);
+      }
+    },
+    steer,
+  );
 }
 
 export function wakeMany(
@@ -160,9 +212,20 @@ export function wakeMany(
   source: WakeSource = "user",
   groupId?: string,
   dm?: boolean,
+  sendMode: SendMode = "queue",
 ): void {
   for (const botId of botIds) {
-    wake({ sender, botId, text, source, hop: 0, groupId, dm, originBotId: botId });
+    wake({
+      sender,
+      botId,
+      text,
+      source,
+      hop: 0,
+      groupId,
+      dm,
+      originBotId: botId,
+      sendMode: source === "user" ? sendMode : "queue",
+    });
   }
 }
 
@@ -173,7 +236,7 @@ export async function applySpawns(
   speaker?: { id?: string; name: string } | null,
 ): Promise<void> {
   const who = speaker === undefined ? parent : speaker;
-  const fromName = who?.name ?? "Du";
+  const fromName = who?.name ?? "You";
   const wanted = parseSpawns(text, who?.name ? [who.name] : []);
   if (wanted.length === 0) return;
 
@@ -209,16 +272,16 @@ export async function applySpawns(
         from: who ? "bot" : "user",
         botId: who?.id,
         name: fromName,
-        content: `${fromName} skapade ${bot.name}`,
+        content: `${fromName} created ${bot.name}`,
         source: "system",
       });
     } catch (error) {
-      const detail = error instanceof Error ? error.message : "Kunde inte skapa botten";
+      const detail = error instanceof Error ? error.message : "Could not create the bot";
       await postTeam(sender, {
         from: who ? "bot" : "user",
         botId: who?.id,
         name: fromName,
-        content: `${fromName} kunde inte skapa ${spawn.name}: ${detail}`,
+        content: `${fromName} could not create ${spawn.name}: ${detail}`,
         source: "system",
       });
       emit(sender, { type: "error", botId: parent.id, message: detail });
@@ -253,7 +316,7 @@ export async function applyGroupCommands(
     await postTeam(sender, {
       from: speaker ? "bot" : "user",
       botId: speaker?.id,
-      name: speaker?.name ?? "Du",
+      name: speaker?.name ?? "You",
       content,
       source: "system",
     });
@@ -273,24 +336,24 @@ export async function applyGroupCommands(
 
     if (command.kind === "create") {
       if (memberIds.length === 0) {
-        await note(`Ingen i ${command.name} matchade en bot`);
+        await note(`No bot matched in ${command.name}`);
         continue;
       }
       try {
         const group = await createGroup({ name: command.name, botIds: memberIds });
         emit(sender, { type: "group", group });
-        const created = `${speaker?.name ?? "Du"} skapade ${group.name}`;
+        const created = `${speaker?.name ?? "You"} created ${group.name}`;
         await note(created);
         await postGroup(sender, group.id, {
           from: speaker ? "bot" : "user",
           botId: speaker?.id,
-          name: speaker?.name ?? "Du",
+          name: speaker?.name ?? "You",
           content: created,
           source: "system",
         });
       } catch (error) {
         if (await findGroupByName(command.name)) continue;
-        const detail = error instanceof Error ? error.message : "Gruppen finns redan";
+        const detail = error instanceof Error ? error.message : "The group already exists";
         await note(`${command.name}: ${detail}`);
       }
       continue;
@@ -298,19 +361,19 @@ export async function applyGroupCommands(
 
     const group = await findGroupByName(command.name);
     if (!group) {
-      await note(`Gruppen ${command.name} finns inte`);
+      await note(`Group ${command.name} does not exist`);
       continue;
     }
     if (memberIds.length === 0) continue;
     const updated = await addGroupMembers(group.id, memberIds);
     if (updated) {
       emit(sender, { type: "group", group: updated });
-      const added = `${speaker?.name ?? "Du"} la till ${command.members.join(", ")} i ${updated.name}`;
+      const added = `${speaker?.name ?? "You"} added ${command.members.join(", ")} to ${updated.name}`;
       await note(added);
       await postGroup(sender, updated.id, {
         from: speaker ? "bot" : "user",
         botId: speaker?.id,
-        name: speaker?.name ?? "Du",
+        name: speaker?.name ?? "You",
         content: added,
         source: "system",
       });
@@ -368,8 +431,10 @@ async function groupsForPrompt() {
 
 async function runTurn(job: Wake): Promise<void> {
   const { sender, botId, text, hop, fromBotId, fromName, source } = job;
+  const gen = turnGen.get(botId) ?? 0;
+  let run: Run | undefined;
   const bot = await getBot(botId);
-  if (!bot) throw new Error("Botten finns inte");
+  if (!bot) throw new Error("Bot does not exist");
 
   await applySpawns(
     sender,
@@ -424,10 +489,11 @@ async function runTurn(job: Wake): Promise<void> {
     type: "status",
     botId,
     status: "starting",
-    message: "Startar agent…",
+    message: "Starting agent…",
   });
 
   try {
+    if (isSuperseded(botId, gen)) return;
     let latest = (await getBot(botId)) ?? bot;
     const teammates = await rosterOf();
     const groups = await groupsForPrompt();
@@ -451,18 +517,30 @@ async function runTurn(job: Wake): Promise<void> {
       text,
     });
     const cloud = Object.keys(envVars).length > 0 ? { cloud: { envVars } } : undefined;
-    let run;
+    const steer = source === "user" && sendDelivery(job.sendMode ?? "queue").cancelActive;
+    if (isSuperseded(botId, gen)) return;
     try {
       run = await agent.send(prompt, cloud);
     } catch (error) {
-      if (!isUnusableAgent(error) || !latest.agentId) throw error;
-      await releaseBotAgent(botId);
-      await updateBot(botId, { agentId: "" });
-      latest = { ...latest, agentId: undefined };
-      agent = await openBotAgent(latest);
-      await updateBot(botId, { agentId: agent.agentId });
-      emit(sender, { type: "agent", botId, agentId: agent.agentId });
-      run = await agent.send(prompt, cloud);
+      if (error instanceof AgentBusyError && steer) {
+        await cancelActiveRun(botId);
+        run = await agent.send(prompt, cloud);
+      } else if (!isUnusableAgent(error) || !latest.agentId) {
+        throw error;
+      } else {
+        await releaseBotAgent(botId);
+        await updateBot(botId, { agentId: "" });
+        latest = { ...latest, agentId: undefined };
+        agent = await openBotAgent(latest);
+        await updateBot(botId, { agentId: agent.agentId });
+        emit(sender, { type: "agent", botId, agentId: agent.agentId });
+        run = await agent.send(prompt, cloud);
+      }
+    }
+    if (!run) throw new Error("Something went wrong");
+    activeRuns.set(botId, run);
+    if (isSuperseded(botId, gen) && run.supports("cancel")) {
+      await run.cancel();
     }
 
     let assistantText = "";
@@ -503,8 +581,19 @@ async function runTurn(job: Wake): Promise<void> {
       });
     }
 
+    if (result.status === "cancelled") {
+      emit(sender, {
+        type: "done",
+        botId,
+        result: persist.assistant ? finalText : publicText,
+        runId: result.id,
+        status: result.status,
+      });
+      return;
+    }
+
     if (result.status === "error") {
-      const message = result.error?.message || "Körningen misslyckades";
+      const message = result.error?.message || "The run failed";
       emit(sender, { type: "error", botId, message });
       throw new Error(message);
     }
@@ -615,17 +704,18 @@ async function runTurn(job: Wake): Promise<void> {
     }
     const message =
       error instanceof AgentBusyError
-        ? "Väntar på förra körningen"
+        ? "Waiting for the previous run"
         : error instanceof CursorAgentError
           ? error.message
           : error instanceof Error
             ? error.message
-            : "Något gick fel";
+            : "Something went wrong";
     if (assistantId) {
       await updateMessage(botId, assistantId, { content: message });
     }
     emit(sender, { type: "error", botId, message });
   } finally {
+    if (run && activeRuns.get(botId) === run) activeRuns.delete(botId);
     if (queuedCount(botId) > 1) {
       emitQueued(sender, botId);
     } else {

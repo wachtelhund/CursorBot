@@ -125,6 +125,11 @@ export function handoffRecipientIds(
 export function isRosterNotice(content: string): boolean {
   const line = content.trim();
   return (
+    /^\S+ created \S+$/.test(line) ||
+    /^\S+ could not create /.test(line) ||
+    /^\S+ added .+ to \S+$/.test(line) ||
+    /^No bot matched in .+$/.test(line) ||
+    /^Group \S+ does not exist$/.test(line) ||
     /^\S+ skapade \S+$/.test(line) ||
     /^\S+ kunde inte skapa /.test(line) ||
     /^\S+ la till .+ i \S+$/.test(line) ||

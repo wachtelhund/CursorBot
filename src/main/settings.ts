@@ -75,7 +75,7 @@ export async function requireApiKey(): Promise<string> {
   const key = await getApiKey();
   if (!key) {
     throw new Error(
-      "Ingen Cursor API-nyckel. Öppna Inställningar och klistra in en nyckel från cursor.com/dashboard/api.",
+      "No Cursor API key. Open Settings and paste a key from cursor.com/dashboard/api.",
     );
   }
   return key;
@@ -115,14 +115,14 @@ export async function upsertSecret(name: string, value: string): Promise<void> {
   const key = name.trim();
   if (!isValidSecretName(key)) {
     throw new Error(
-      "Ogiltigt namn. Använd A–Z, 0–9 och _ och börja inte med CURSOR_.",
+      "Invalid name. Use A–Z, 0–9, and _, and do not start with CURSOR_.",
     );
   }
   const current = await readSettings();
   const secrets = decodeSecrets(current);
   const nextValue = value.trim();
   if (!nextValue && !secrets[key]) {
-    throw new Error("Värde krävs");
+    throw new Error("Value is required");
   }
   if (nextValue) secrets[key] = nextValue;
   const encoded = encodeSecrets(secrets);

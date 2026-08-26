@@ -63,9 +63,26 @@ In the app: gear → paste an API key from [cursor.com/dashboard/api](https://cu
 
 `ELECTRON_RUN_AS_NODE` must be unset (`npm run dev` clears it).
 
+## Inspect chats from Cursor (MCP)
+
+This repo includes a small local **stdio MCP** server named `cursor-bots`. It reads the Electron app’s `store.json` (Team, groups, DMs) so Cursor agents can see the chats you are testing. It does **not** read `settings.json`, API keys, or token values.
+
+Typical store paths (the server picks the newest file that actually has bots or messages):
+
+- Packaged macOS: `~/Library/Application Support/Cursor Bots/store.json`
+- `npm run dev` on macOS: `~/Library/Application Support/Electron/store.json` (the binary is still Electron.app)
+- Linux: `~/.config/Cursor Bots/store.json` or `~/.config/electron/store.json`
+- Windows: `%APPDATA%\Cursor Bots\store.json` or `%APPDATA%\Electron\store.json`
+
+Override with `CURSOR_BOTS_STORE` (file) or `CURSOR_BOTS_USER_DATA` (directory).
+
+Enable it for this workspace via `.cursor/mcp.json` (already in the repo). Reload the Cursor window if the tools do not appear. Run it by hand with `npm run mcp`.
+
 ## Team
 
-Open **Team** in the sidebar. A line `@Research do X` or `@Research: do X` wakes that bot. `@alla` on its own line wakes everyone. Mid-sentence `@Name` wakes no one. Bots can write `@Name: …` to each other.
+Open **Team** in the sidebar. A line `@Research do X` or `@Research: do X` wakes that bot. `@all` on its own line wakes everyone. Mid-sentence `@Name` wakes no one. Bots can write `@Name: …` to each other.
+
+Enter **queues** a prompt for after the current Cloud Agent run. **Steer** (button or ⌘Enter / Ctrl+Enter) cancels the active run and sends now.
 
 GitHub, AWS, and Cloudflare logins happen in Cursor, not here. Shared tokens go under Settings.
 

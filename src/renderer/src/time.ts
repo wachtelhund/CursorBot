@@ -45,7 +45,7 @@ export function relativeTime(
   return date.toLocaleDateString(copy.locale, { day: "numeric", month: "short" });
 }
 
-/** Grok-style group stamp: "Today 8:51" / "Idag 8:51". */
+/** Thread stamp: "Today 8:51". */
 export function threadClock(
   iso?: string,
   now = new Date(),

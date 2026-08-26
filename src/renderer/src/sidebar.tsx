@@ -5,7 +5,7 @@ import { TEAM_SCOPE } from "@shared/types";
 import { dmActivityAt, isHandoffMessage, isRosterNotice, lastDmPreview } from "@shared/collapse";
 import { publicBotText } from "@shared/mentions";
 import { BotFace } from "./buddy";
-import { t, timeCopy, useLang } from "./i18n";
+import { t, timeCopy } from "./i18n";
 import { DotsVerticalIcon, GearIcon, MessagesSquared, PlusIcon, SidebarIcon } from "./icons";
 import { lastPreview, relativeTime } from "./time";
 
@@ -369,7 +369,6 @@ export function Sidebar({
   onDeleteGroup,
   onSettings,
 }: SidebarProps) {
-  const { lang, setLang } = useLang();
   const [listWidth, setListWidth] = useState(readListWidth);
   const [resizing, setResizing] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -457,28 +456,6 @@ export function Sidebar({
             title={t("team")}
           >
             <MessagesSquared size={18} />
-          </button>
-        </div>
-        <div className="mb-1 flex flex-col items-center gap-0.5" role="group" aria-label={t("language")}>
-          <button
-            type="button"
-            onClick={() => setLang("en")}
-            className={`rounded px-1 py-0.5 text-[10px] font-semibold tracking-wide ${
-              lang === "en" ? "text-ink" : "text-faint hover:text-ink"
-            }`}
-            aria-pressed={lang === "en"}
-          >
-            EN
-          </button>
-          <button
-            type="button"
-            onClick={() => setLang("sv")}
-            className={`rounded px-1 py-0.5 text-[10px] font-semibold tracking-wide ${
-              lang === "sv" ? "text-ink" : "text-faint hover:text-ink"
-            }`}
-            aria-pressed={lang === "sv"}
-          >
-            SV
           </button>
         </div>
         <button

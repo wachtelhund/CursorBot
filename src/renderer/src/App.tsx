@@ -23,6 +23,7 @@ import { t, useLang } from "./i18n";
 import { buildDmRows, buildLogRows, mergeBusLogs } from "@shared/collapse";
 import { sortBots } from "@shared/bots";
 import { LATEST_RELEASE_PAGE, type UpdateAvailable, type UpdateCheckResult } from "@shared/updates";
+import type { SendMode } from "@shared/send-mode";
 
 const DEFAULT_MODEL = "composer-2.5";
 
@@ -542,7 +543,7 @@ export function App() {
     }
   }
 
-  async function sendMessage() {
+  async function sendMessage(mode: SendMode = "queue") {
     const text = draft.trim();
     if (!text) return;
     const groupId = selectedGroup?.id;
@@ -552,7 +553,7 @@ export function App() {
     setTools([]);
     setRelay(null);
     try {
-      await window.cursorBots.sendMessage({ text, botId, groupId });
+      await window.cursorBots.sendMessage({ text, botId, groupId, sendMode: mode });
     } catch (err) {
       const send = window.cursorBots.sendMessage as (
         a: unknown,
@@ -865,7 +866,7 @@ export function App() {
                           : t("botPlaceholder", { name: selected?.name ?? t("theBot") })
                     }
                     onDraft={setDraft}
-                    onSend={() => void sendMessage()}
+                    onSend={(mode) => void sendMessage(mode)}
                   />
                 </div>
               </>

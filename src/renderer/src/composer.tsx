@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState } from "react";
 import { filterRoster, mentionQueryAt } from "@shared/mentions";
+import type { SendMode } from "@shared/send-mode";
 import type { Bot } from "@shared/types";
 import { BotFace } from "./buddy";
-import { t, useLang } from "./i18n";
+import { t } from "./i18n";
 import { PlusIcon, SendMessageIcon } from "./icons";
 
 type ComposerProps = {
@@ -11,8 +12,15 @@ type ComposerProps = {
   placeholder: string;
   disabled?: boolean;
   onDraft: (value: string) => void;
-  onSend: () => void;
+  onSend: (mode: SendMode) => void;
 };
+
+function steerShortcut(): string {
+  if (typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)) {
+    return "⌘Enter";
+  }
+  return "Ctrl+Enter";
+}
 
 export function Composer({
   bots,
@@ -22,10 +30,10 @@ export function Composer({
   onDraft,
   onSend,
 }: ComposerProps) {
-  useLang();
   const area = useRef<HTMLTextAreaElement>(null);
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
+  const shortcut = steerShortcut();
 
   const names = bots.map((bot) => bot.name);
   const mention = mentionQueryAt(draft, caret, names);
@@ -47,6 +55,10 @@ export function Composer({
       area.current?.setSelectionRange(pos, pos);
       setCaret(pos);
     });
+  }
+
+  function send(mode: SendMode) {
+    if (!disabled && draft.trim()) onSend(mode);
   }
 
   return (
@@ -77,10 +89,10 @@ export function Composer({
 
       <form
         className="composer-bar"
-        title={t("composerHint")}
+        title={t("composerHint", { shortcut })}
         onSubmit={(event) => {
           event.preventDefault();
-          if (!disabled) onSend();
+          send("queue");
         }}
       >
         <span className="composer-plus" aria-hidden="true">
@@ -101,6 +113,11 @@ export function Composer({
           onClick={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              send("steer");
+              return;
+            }
             if (suggestions.length > 0) {
               if (event.key === "ArrowDown") {
                 event.preventDefault();
@@ -127,15 +144,24 @@ export function Composer({
             }
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
-              if (!disabled) onSend();
+              send("queue");
             }
           }}
         />
         <button
+          type="button"
+          disabled={disabled || !draft.trim()}
+          className="composer-steer"
+          title={t("steerTitle", { shortcut })}
+          onClick={() => send("steer")}
+        >
+          {t("steer")}
+        </button>
+        <button
           type="submit"
           disabled={disabled || !draft.trim()}
           className="composer-send"
-          title={t("send")}
+          title={t("queueTitle")}
         >
           <SendMessageIcon size={14} />
         </button>

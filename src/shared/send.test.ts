@@ -4,26 +4,35 @@ import { parseHandoffs } from "./mentions.ts";
 import { parseSendPayload, resolveLogThread, resolveSendTargets } from "./send.ts";
 
 test("parseSendPayload reads { text, botId }", () => {
-  assert.deepEqual(parseSendPayload({ text: "  hej  ", botId: "bot_1" }), {
-    text: "hej",
+  assert.deepEqual(parseSendPayload({ text: "  hi  ", botId: "bot_1" }), {
+    text: "hi",
     botId: "bot_1",
     groupId: undefined,
+    sendMode: "queue",
   });
 });
 
 test("parseSendPayload accepts legacy (botId, text)", () => {
-  assert.deepEqual(parseSendPayload("bot_1", "hej"), {
-    text: "hej",
+  assert.deepEqual(parseSendPayload("bot_1", "hi"), {
+    text: "hi",
     botId: "bot_1",
+    sendMode: "queue",
   });
 });
 
 test("parseSendPayload reads groupId", () => {
-  assert.deepEqual(parseSendPayload({ text: "hej", groupId: "grp_1" }), {
-    text: "hej",
+  assert.deepEqual(parseSendPayload({ text: "hi", groupId: "grp_1" }), {
+    text: "hi",
     botId: undefined,
     groupId: "grp_1",
+    sendMode: "queue",
   });
+});
+
+test("parseSendPayload reads sendMode and defaults to queue", () => {
+  assert.equal(parseSendPayload({ text: "hi", sendMode: "steer" }).sendMode, "steer");
+  assert.equal(parseSendPayload({ text: "hi", sendMode: "nope" }).sendMode, "queue");
+  assert.equal(parseSendPayload({ text: "hi" }).sendMode, "queue");
 });
 
 test("parseSendPayload does not drop text when renderer sends an object", () => {

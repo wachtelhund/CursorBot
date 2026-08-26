@@ -1,18 +1,27 @@
+import { parseSendMode, type SendMode } from "./send-mode.ts";
+
 export type ParsedSend = {
   text: string;
   botId?: string;
   groupId?: string;
+  sendMode: SendMode;
 };
 
 export function parseSendPayload(payload: unknown, maybeText?: unknown): ParsedSend {
   if (payload && typeof payload === "object") {
-    const input = payload as { text?: unknown; botId?: unknown; groupId?: unknown };
+    const input = payload as {
+      text?: unknown;
+      botId?: unknown;
+      groupId?: unknown;
+      sendMode?: unknown;
+    };
     const text = typeof input.text === "string" ? input.text.trim() : "";
     if (text) {
       return {
         text,
         botId: typeof input.botId === "string" && input.botId ? input.botId : undefined,
         groupId: typeof input.groupId === "string" && input.groupId ? input.groupId : undefined,
+        sendMode: parseSendMode(input.sendMode),
       };
     }
   }
@@ -22,10 +31,11 @@ export function parseSendPayload(payload: unknown, maybeText?: unknown): ParsedS
     return {
       text: legacyText,
       botId: typeof payload === "string" && payload ? payload : undefined,
+      sendMode: "queue",
     };
   }
 
-  return { text: "" };
+  return { text: "", sendMode: "queue" };
 }
 
 export function resolveSendTargets(input: {
