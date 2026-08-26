@@ -1,9 +1,15 @@
-import { app } from "electron";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { id } from "./ids";
 import { sortBots } from "../shared/bots";
-import { backfillSourcesFrom, collectBackfillSpawns } from "../shared/spawn";
+import type { CloudAgent } from "../shared/cursor-cloud";
+import {
+  agentToBot,
+  archiveCloudAgent,
+  botFromAgent,
+  createCloudAgent,
+  getCloudAgent,
+  listCloudAgents,
+} from "./cloud";
+import { hasApiKey } from "./settings";
 import {
   BUDDY_KINDS,
   type Bot,
@@ -26,6 +32,7 @@ type StoreData = {
 const empty: StoreData = { bots: [], team: [], groups: [], removedNames: [] };
 const TEAM_CAP = 400;
 
+let ram: StoreData = { ...empty, bots: [], team: [], groups: [], removedNames: [] };
 let writeQueue: Promise<unknown> = Promise.resolve();
 
 function withLock<T>(fn: () => Promise<T>): Promise<T> {
@@ -37,78 +44,45 @@ function withLock<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-function storeFile(): string {
-  return path.join(app.getPath("userData"), "store.json");
-}
-
-function normalize(parsed: Partial<StoreData> | null): StoreData {
-  return {
-    bots: Array.isArray(parsed?.bots) ? parsed.bots : [],
-    team: Array.isArray(parsed?.team) ? parsed.team : [],
-    groups: Array.isArray(parsed?.groups) ? parsed.groups : [],
-    removedNames: Array.isArray(parsed?.removedNames)
-      ? parsed.removedNames.filter((name): name is string => typeof name === "string")
-      : [],
-  };
-}
-
 async function readStore(): Promise<StoreData> {
-  try {
-    const raw = await readFile(storeFile(), "utf8");
-    return normalize(JSON.parse(raw) as StoreData);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return empty;
-    throw error;
-  }
+  return ram;
 }
 
 async function writeStore(data: StoreData): Promise<void> {
-  const file = storeFile();
-  await mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(data, null, 2));
-  await rename(tmp, file);
+  ram = data;
+}
+
+function overlayFromCloud(agent: CloudAgent, cached?: Bot): Bot {
+  if (!cached) return agentToBot(agent);
+  return {
+    ...cached,
+    name: agent.name,
+    repoUrl: agent.repos?.[0]?.url ?? cached.repoUrl,
+    startingRef: agent.repos?.[0]?.startingRef ?? cached.startingRef,
+    agentId: agent.id,
+    updatedAt: agent.updatedAt || cached.updatedAt,
+  };
 }
 
 export async function listBots(): Promise<Bot[]> {
-  return sortBots((await readStore()).bots);
+  if (!(await hasApiKey())) return [];
+  const agents = await listCloudAgents();
+  const previous = new Map(ram.bots.map((bot) => [bot.id, bot]));
+  const bots: Bot[] = [];
+  for (const agent of agents) {
+    const cached = previous.get(agent.id);
+    bots.push(cached ? overlayFromCloud(agent, cached) : await botFromAgent(agent));
+  }
+  ram = { ...ram, bots };
+  return sortBots(bots);
 }
 
 export async function listRemovedNames(): Promise<string[]> {
-  return (await readStore()).removedNames;
+  return ram.removedNames;
 }
 
 export async function backfillMissingBots(): Promise<Bot[]> {
-  const bots = await listBots();
-  const team = await listTeam();
-  const specs = collectBackfillSpawns(
-    backfillSourcesFrom({ team, bots }),
-    bots.map((bot) => bot.name),
-    await listRemovedNames(),
-  );
-  if (specs.length === 0) return [];
-
-  const model =
-    bots.find((bot) => bot.name.toLowerCase() === "chefen")?.model ||
-    bots[0]?.model ||
-    "composer-2.5";
-
-  const created: Bot[] = [];
-  for (const spec of specs) {
-    try {
-      created.push(
-        await createBot({
-          name: spec.name,
-          role: spec.role,
-          model,
-          agentId: spec.agentId,
-        }),
-      );
-    } catch {
-      // Name taken or invalid — skip.
-    }
-  }
-  return created;
+  return [];
 }
 
 export async function listTeam(): Promise<TeamMessage[]> {
@@ -133,39 +107,33 @@ export async function findGroupByName(name: string): Promise<BotGroup | undefine
 }
 
 export async function getBot(botId: string): Promise<Bot | undefined> {
-  const store = await readStore();
-  return store.bots.find((bot) => bot.id === botId);
+  const cached = ram.bots.find((bot) => bot.id === botId || bot.agentId === botId);
+  if (cached) return cached;
+  if (!(await hasApiKey())) return undefined;
+  try {
+    const agent = await getCloudAgent(botId);
+    if (!agent) return undefined;
+    const bot = await botFromAgent(agent);
+    ram = { ...ram, bots: [bot, ...ram.bots.filter((item) => item.id !== bot.id)] };
+    return bot;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function createBot(input: CreateBotInput): Promise<Bot> {
   return withLock(async () => {
-    const store = await readStore();
     const name = input.name.trim();
     if (!name) throw new Error("Name is required");
-    const taken = store.bots.some(
-      (bot) => bot.name.toLowerCase() === name.toLowerCase(),
-    );
-    if (taken) throw new Error("Name is taken");
-
-    const now = new Date().toISOString();
-    const bot: Bot = {
-      id: id("bot"),
-      name,
-      role: input.role?.trim() ?? "",
-      model: input.model?.trim() || "composer-2.5",
-      repoUrl: input.repoUrl?.trim() || undefined,
-      startingRef: input.startingRef?.trim() || undefined,
-      character: input.character,
-      agentId: input.agentId?.trim() || undefined,
-      messages: [],
-      createdAt: now,
-      updatedAt: now,
-    };
-    store.bots.push(bot);
-    store.removedNames = store.removedNames.filter(
-      (item) => item.toLowerCase() !== name.toLowerCase(),
-    );
-    await writeStore(store);
+    const agent = input.agentId?.trim()
+      ? await getCloudAgent(input.agentId.trim())
+      : await createCloudAgent(input);
+    if (!agent) throw new Error("Cloud agent not found");
+    const bot = agentToBot(agent);
+    bot.role = input.role?.trim() ?? "";
+    bot.model = input.model?.trim() || "composer-2.5";
+    if (input.character) bot.character = input.character;
+    ram = { ...ram, bots: [bot, ...ram.bots.filter((item) => item.id !== bot.id)] };
     return bot;
   });
 }
@@ -185,8 +153,14 @@ export async function updateBot(
 ): Promise<Bot | undefined> {
   return withLock(async () => {
     const store = await readStore();
-    const bot = store.bots.find((item) => item.id === botId);
-    if (!bot) return undefined;
+    let bot = store.bots.find((item) => item.id === botId || item.agentId === botId);
+    if (!bot) {
+      const agent = await getCloudAgent(botId);
+      if (!agent) return undefined;
+      const created = agentToBot(agent);
+      bot = created;
+      store.bots = [created, ...store.bots.filter((item) => item.id !== created.id)];
+    }
     if (patch.name !== undefined) {
       const next = patch.name.trim();
       if (!next) throw new Error("Name is required");
@@ -266,18 +240,34 @@ export async function setPinned(
 export async function deleteBot(botId: string): Promise<Bot | undefined> {
   return withLock(async () => {
     const store = await readStore();
-    const index = store.bots.findIndex((bot) => bot.id === botId);
-    if (index === -1) return undefined;
-    const [removed] = store.bots.splice(index, 1);
-    const key = removed.name.toLowerCase();
-    if (!store.removedNames.some((name) => name.toLowerCase() === key)) {
-      store.removedNames.push(removed.name);
+    const index = store.bots.findIndex((bot) => bot.id === botId || bot.agentId === botId);
+    const removed = index === -1 ? undefined : store.bots[index];
+    const agentId = removed?.agentId ?? removed?.id ?? botId;
+    if (!agentId) return undefined;
+    await archiveCloudAgent(agentId);
+    if (index !== -1) store.bots.splice(index, 1);
+    if (removed) {
+      const key = removed.name.toLowerCase();
+      if (!store.removedNames.some((name) => name.toLowerCase() === key)) {
+        store.removedNames.push(removed.name);
+      }
     }
     for (const group of store.groups) {
-      group.botIds = group.botIds.filter((id) => id !== botId);
+      group.botIds = group.botIds.filter((id) => id !== botId && id !== agentId);
     }
     await writeStore(store);
-    return removed;
+    return (
+      removed ?? {
+        id: agentId,
+        name: agentId,
+        role: "",
+        model: "composer-2.5",
+        agentId,
+        messages: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    );
   });
 }
 
@@ -388,6 +378,7 @@ function toMessage(
     fromBotId: message.fromBotId,
     fromName: message.fromName,
     toBotIds: message.toBotIds,
+    taskId: message.taskId,
   };
 }
 
@@ -444,6 +435,7 @@ function toTeamMessage(
     toBotIds: message.toBotIds,
     source: message.source,
     fromBotId: message.fromBotId,
+    taskId: message.taskId,
     createdAt: message.createdAt ?? new Date().toISOString(),
   };
 }

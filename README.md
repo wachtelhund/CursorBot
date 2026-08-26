@@ -46,11 +46,19 @@ xattr -cr "/Applications/Cursor Bots.app"
 
 ### Phone
 
-Keep the desktop app open. Settings → **Phone** shows a local link (`http://your-lan-ip:47821/#t=…`). Open it on your phone on the same Wi‑Fi. The token in the link is the password — use **New link** if it leaks.
+Bots are **Cursor Cloud Agents** at `api.cursor.com`. Paste the same API key on the phone. The Mac is not the database, Tailscale is not the product, and the desktop app does not need to stay open.
 
-**Internet:** Settings → **Internet link** starts a Cloudflare quick tunnel if `cloudflared` is installed (`brew install cloudflared`). Or install [Tailscale](https://tailscale.com) on the computer and the phone and use the local link with the Tailscale IP.
+A browser cannot call `api.cursor.com` directly (CORS).
 
-The Mac/PC runs the Cloud Agents. The phone is a remote control, not a second backend.
+**Dev:** `npm run dev` binds Vite on the LAN (`server.host: true`). On the phone open `http://<your-computer>:5173`, paste the key. The UI calls `/cursor-api`, which Vite proxies to `https://api.cursor.com`.
+
+**Production CORS:** deploy the tiny proxy, then build the renderer with `VITE_CURSOR_PROXY` set to that origin:
+
+```bash
+npx wrangler deploy --config workers/cursor-proxy/wrangler.toml
+```
+
+Team send on the phone is `@Name` / `@all` fan-out against Cloud Agents. Groups are not stored in Cursor Cloud.
 
 ### Updates
 
@@ -75,9 +83,9 @@ In the app: gear → paste an API key from [cursor.com/dashboard/api](https://cu
 
 ## Inspect chats from Cursor (MCP)
 
-This repo includes a small local **stdio MCP** server named `cursor-bots`. It reads the Electron app’s `store.json` (Team, groups, DMs) so Cursor agents can see the chats you are testing. It does **not** read `settings.json`, API keys, or token values.
+This repo includes a small local **stdio MCP** server named `cursor-bots`. The roster lives in Cursor Cloud, not on the Mac. The MCP may still open a leftover `store.json` if one exists from older builds — that file is no longer written and is not the source of truth. It does **not** read `settings.json`, API keys, or token values.
 
-Typical store paths (the server picks the newest file that actually has bots or messages):
+Typical leftover paths (the server picks the newest file that actually has bots or messages):
 
 - Packaged macOS: `~/Library/Application Support/Cursor Bots/store.json`
 - `npm run dev` on macOS: `~/Library/Application Support/Electron/store.json` (the binary is still Electron.app)

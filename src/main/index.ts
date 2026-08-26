@@ -3,7 +3,6 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { releaseAllAgents } from "./cursor";
 import { registerIpc } from "./ipc";
-import { startRemoteAccess, stopRemoteAccess } from "./remote-access";
 import { backfillMissingBots } from "./store";
 
 const APP_NAME = "Cursor Bots";
@@ -88,7 +87,6 @@ app.whenReady().then(() => {
   app.setAboutPanelOptions({ applicationName: APP_NAME });
   registerIpc();
   void backfillMissingBots();
-  void startRemoteAccess();
   ipcMain.handle("shell:open", (_event, url: string) => {
     if (!url.startsWith("https://")) return;
     return shell.openExternal(url);
@@ -106,6 +104,5 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
-  void stopRemoteAccess();
   void releaseAllAgents();
 });

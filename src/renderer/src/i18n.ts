@@ -23,8 +23,9 @@ export const en = {
   updateCheckFailed: "Could not check for updates",
   phoneAccess: "Phone",
   phoneHelp:
-    "The desktop app must stay open. Same Wi‑Fi: open a local link. Away from home: start an internet link or use Tailscale.",
-  phoneOpenLink: "Open the Phone link from Settings on your computer.",
+    "Bots live in Cursor Cloud. On your phone, open this app in the browser and paste the same API key. The Mac does not hold the chats.",
+  phoneKeyHelp:
+    "Paste a Cursor API key. Teammates are your Cloud Agents — same list on every phone and computer.",
   phoneEnable: "Allow phone access",
   phoneCopy: "Copy local link",
   phoneCopied: "Copied",

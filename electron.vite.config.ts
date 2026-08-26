@@ -31,6 +31,16 @@ export default defineConfig({
         "@shared": resolve("src/shared"),
       },
     },
+    server: {
+      host: true,
+      proxy: {
+        "/cursor-api": {
+          target: "https://api.cursor.com",
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/cursor-api/, ""),
+        },
+      },
+    },
     plugins: [react(), tailwindcss()],
   },
 });
