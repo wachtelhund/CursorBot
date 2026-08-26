@@ -348,27 +348,44 @@ async function runTurn(job: Wake): Promise<void> {
   );
 
   const persistDm = Boolean(job.dm) && source === "user";
+  const persistHop = source === "handoff";
+  const persist = persistDm || persistHop;
   const isFirst = !bot.agentId && bot.messages.filter((message) => message.role === "user").length === 0;
 
   let assistantId: string | undefined;
-  if (persistDm) {
-    const userMessage = await appendMessage(botId, {
-      role: "user",
-      content: text,
-      source: "user",
+  if (persistHop) {
+    const incoming = await appendMessage(botId, {
+      role: "assistant",
+      content: `@${bot.name}: ${text}`,
+      source: "handoff",
       fromBotId,
       fromName,
+      toBotIds: fromBotId ? [fromBotId] : undefined,
     });
-    if (userMessage) emit(sender, { type: "append", botId, message: userMessage });
+    if (incoming) emit(sender, { type: "append", botId, message: incoming });
+  }
+
+  if (persist) {
+    if (persistDm) {
+      const userMessage = await appendMessage(botId, {
+        role: "user",
+        content: text,
+        source: "user",
+        fromBotId,
+        fromName,
+      });
+      if (userMessage) emit(sender, { type: "append", botId, message: userMessage });
+    }
 
     assistantId = id("msg");
     const assistantMessage = await appendMessage(botId, {
       id: assistantId,
       role: "assistant",
       content: "",
-      source: "bot",
+      source: persistHop ? "handoff" : "bot",
       fromBotId: botId,
       fromName: bot.name,
+      toBotIds: persistHop && fromBotId ? [fromBotId] : undefined,
     });
     if (assistantMessage) emit(sender, { type: "append", botId, message: assistantMessage });
   }
@@ -466,7 +483,7 @@ async function runTurn(job: Wake): Promise<void> {
     emit(sender, {
       type: "done",
       botId,
-      result: persistDm ? finalText : publicText,
+      result: persist ? finalText : publicText,
       runId: result.id,
       status: result.status,
     });

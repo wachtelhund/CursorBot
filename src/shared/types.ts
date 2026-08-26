@@ -13,7 +13,7 @@ export const BUDDY_KINDS = [
 
 export type BuddyKind = (typeof BUDDY_KINDS)[number];
 
-export type MessageSource = "user" | "bot" | "system";
+export type MessageSource = "user" | "bot" | "system" | "handoff";
 
 export type ChatMessage = {
   id: string;

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Bot, BotGroup, ChatMessage, TeamMessage } from "@shared/types";
+import type { Bot, BotGroup, TeamMessage } from "@shared/types";
 import { TEAM_SCOPE } from "@shared/types";
-import { isHandoffMessage, isRosterNotice } from "@shared/collapse";
+import { dmActivityAt, isHandoffMessage, isRosterNotice, lastDmPreview } from "@shared/collapse";
 import { publicBotText } from "@shared/mentions";
 import { BotFace } from "./buddy";
 import { t, timeCopy, useLang } from "./i18n";
@@ -17,6 +17,7 @@ const WIDTH_KEY = "cursor-bots.sidebar-width";
 type SidebarProps = {
   bots: Bot[];
   groups: BotGroup[];
+  team: TeamMessage[];
   selectedId: string | null;
   thinkingIds: string[];
   filter: string;
@@ -186,19 +187,6 @@ function lastUserFacingTeam(messages: TeamMessage[]): string {
   return "";
 }
 
-function lastUserFacingDm(bot: Bot): string {
-  for (let index = bot.messages.length - 1; index >= 0; index -= 1) {
-    const message: ChatMessage = bot.messages[index];
-    if (message.role === "user") return message.content;
-    if (message.source === "bot" && message.fromBotId && message.fromBotId !== bot.id) {
-      continue;
-    }
-    const text = publicBotText(message.content);
-    if (text) return text;
-  }
-  return "";
-}
-
 function GroupRow({
   group,
   selected,
@@ -267,15 +255,16 @@ function GroupRow({
   );
 }
 
-function previewFor(bot: Bot, thinking: boolean): { text: string; wait: boolean } {
+function previewFor(bot: Bot, thinking: boolean, team: TeamMessage[]): { text: string; wait: boolean } {
   if (thinking) return { text: t("thinking"), wait: true };
-  const text = lastUserFacingDm(bot);
+  const text = lastDmPreview(bot.messages, { botId: bot.id, team });
   if (text) return { text: lastPreview(text), wait: false };
   return { text: bot.role || t("noActivity"), wait: false };
 }
 
 function BotRow({
   bot,
+  team,
   selected,
   thinking,
   menuOpen,
@@ -288,6 +277,7 @@ function BotRow({
   onDelete,
 }: {
   bot: Bot;
+  team: TeamMessage[];
   selected: boolean;
   thinking: boolean;
   menuOpen: boolean;
@@ -299,7 +289,7 @@ function BotRow({
   onCopyAgentLink: () => void;
   onDelete: () => void;
 }) {
-  const preview = previewFor(bot, thinking);
+  const preview = previewFor(bot, thinking, team);
   return (
     <div
       className={`bot-row mb-0.5 flex items-center rounded-2xl ${
@@ -319,7 +309,7 @@ function BotRow({
               {thinking ? (
                 <span className="pulse-dot inline-block size-1.5 rounded-full bg-wait" />
               ) : (
-                relativeTime(bot.updatedAt, undefined, timeCopy())
+                relativeTime(dmActivityAt(bot, team), undefined, timeCopy())
               )}
             </span>
           </span>
@@ -362,6 +352,7 @@ function BotRow({
 export function Sidebar({
   bots,
   groups,
+  team,
   selectedId,
   thinkingIds,
   filter,
@@ -589,6 +580,7 @@ export function Sidebar({
                       <BotRow
                         key={bot.id}
                         bot={bot}
+                        team={team}
                         selected={bot.id === selectedId}
                         thinking={thinkingIds.includes(bot.id)}
                         menuOpen={openMenuId === bot.id}
@@ -610,6 +602,7 @@ export function Sidebar({
                       <BotRow
                         key={bot.id}
                         bot={bot}
+                        team={team}
                         selected={bot.id === selectedId}
                         thinking={thinkingIds.includes(bot.id)}
                         menuOpen={openMenuId === bot.id}

@@ -188,6 +188,94 @@ function sameAssignment(message: DmMessage, hop: LogHop, speakerId: string): boo
   return hop.content.trim() === message.content.trim();
 }
 
+function sameHopContent(message: { content: string }, hop: { content: string }): boolean {
+  return message.content.trim() === hop.content.trim();
+}
+
+/** Assignments to this bot plus that bot's handoff replies — for the target DM. */
+export function hopsTowardBot<T extends LogHop>(log: T[], botId: string): T[] {
+  const seen = new Set<string>();
+  const hops: T[] = [];
+  for (const message of log) {
+    if (message.from === "user") continue;
+    if (message.source === "system" || isRosterNotice(message.content)) continue;
+    const toMe = Boolean(message.toBotIds?.includes(botId));
+    const myReply =
+      message.source === "handoff" &&
+      message.botId === botId &&
+      !message.toBotIds?.length;
+    if (!toMe && !myReply) continue;
+    if (seen.has(message.id)) continue;
+    seen.add(message.id);
+    hops.push(message);
+  }
+  return hops;
+}
+
+/** Counterpart in a Messaged row: recipients, or the sender when this chat is the target. */
+export function hopCounterpartIds(
+  items: { toBotIds?: string[]; content: string; botId?: string; fromBotId?: string }[],
+  roster: RosterEntry[],
+  speakerId?: string,
+): string[] {
+  const targets = handoffRecipientIds(items, roster);
+  if (!speakerId) return targets;
+  const others = targets.filter((id) => id !== speakerId);
+  if (others.length > 0) return others;
+  return uniqueKeys(
+    items
+      .map((item) => item.fromBotId)
+      .filter((id): id is string => Boolean(id && id !== speakerId)),
+    (id) => id,
+  );
+}
+
+/** Last DM sidebar line: user-facing text, else the latest hop on this bot. */
+export function lastDmPreview(
+  messages: DmMessage[],
+  input: { botId: string; team?: LogHop[] },
+): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "user") return message.content;
+    if (message.source === "handoff") {
+      const text = message.content.trim();
+      if (text) return text;
+      continue;
+    }
+    if (message.source === "bot" && message.fromBotId && message.fromBotId !== input.botId) {
+      continue;
+    }
+    const text = publicBotText(message.content);
+    if (text) return text;
+  }
+  const hop = input.team ? hopsTowardBot(input.team, input.botId).at(-1) : undefined;
+  return hop?.content.trim() ?? "";
+}
+
+export function dmActivityAt(
+  bot: { id: string; updatedAt: string },
+  team: LogHop[],
+): string {
+  const hop = hopsTowardBot(team, bot.id).at(-1);
+  if (!hop) return bot.updatedAt;
+  return Date.parse(hop.createdAt) > Date.parse(bot.updatedAt) ? hop.createdAt : bot.updatedAt;
+}
+
+function hopToRow(hop: LogHop, speakerId: string): DmRow {
+  return {
+    id: hop.id,
+    role: "assistant",
+    content: hop.content,
+    inspect: true,
+    fromPeer: Boolean(hop.botId && hop.botId !== speakerId),
+    fromBotId: hop.botId,
+    fromName: hop.name,
+    toBotIds: hop.toBotIds,
+    createdAt: hop.createdAt,
+  };
+}
+
 /** DM rows: human text as bubbles; @Name: hops stay inspectable in this window. */
 export function buildDmRows(
   messages: DmMessage[],
@@ -204,23 +292,28 @@ export function buildDmRows(
 
   for (const [index, message] of messages.entries()) {
     const fromPeer = Boolean(
-      message.source === "bot" && message.fromBotId && message.fromBotId !== input.speakerId,
+      message.fromBotId &&
+        message.fromBotId !== input.speakerId &&
+        (message.source === "bot" || message.source === "handoff"),
     );
     const isLast = message.role === "assistant" && index === messages.length - 1;
     const inspect =
       fromPeer ||
+      message.source === "handoff" ||
       (message.role === "assistant" &&
         isInspectMessage(
           {
             from: "bot",
             content: message.content,
             toBotIds: message.toBotIds,
+            source: message.source,
             botId: input.speakerId,
           },
           messages.slice(0, index).map((item) => ({
             from: item.role === "user" ? "user" : "bot",
             content: item.content,
             toBotIds: item.toBotIds,
+            source: item.source,
             botId:
               item.fromBotId && item.fromBotId !== input.speakerId
                 ? item.fromBotId
@@ -250,6 +343,7 @@ export function buildDmRows(
     }
 
     if (message.role !== "assistant") continue;
+    if (message.source === "handoff") continue;
     const nextUser = messages.slice(index + 1).find((item) => item.role === "user");
     for (const hop of hopsFromLog(input.team, {
       speakerId: input.speakerId,
@@ -258,17 +352,15 @@ export function buildDmRows(
     })) {
       if (isRosterNotice(hop.content) || hop.source === "system") continue;
       if (sameAssignment(message, hop, input.speakerId)) continue;
-      push({
-        id: hop.id,
-        role: "assistant",
-        content: hop.content,
-        inspect: true,
-        fromPeer: Boolean(hop.botId && hop.botId !== input.speakerId),
-        fromBotId: hop.botId,
-        fromName: hop.name,
-        toBotIds: hop.toBotIds,
-        createdAt: hop.createdAt,
-      });
+      if (messages.some((item) => sameHopContent(item, hop))) continue;
+      push(hopToRow(hop, input.speakerId));
+    }
+  }
+
+  if (messages.length === 0) {
+    for (const hop of hopsTowardBot(input.team, input.speakerId)) {
+      if (seen.has(hop.id)) continue;
+      push(hopToRow(hop, input.speakerId));
     }
   }
 

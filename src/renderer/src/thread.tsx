@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { bundleHandoffs, handoffRecipientIds } from "@shared/collapse";
+import { bundleHandoffs, hopCounterpartIds } from "@shared/collapse";
 import type { Bot } from "@shared/types";
 import { BotFace } from "./buddy";
 import { t, timeCopy, useLang } from "./i18n";
@@ -61,15 +61,17 @@ function Bubble({ item, inspect = false }: { item: ThreadItem; inspect?: boolean
   );
 }
 
-function recipientFaces(items: ThreadItem[], bots: Bot[]): ThreadItem[] {
+function recipientFaces(items: ThreadItem[], bots: Bot[], viewerId?: string): ThreadItem[] {
   const roster = bots.map((bot) => ({ id: bot.id, name: bot.name }));
-  return handoffRecipientIds(
+  return hopCounterpartIds(
     items.map((item) => ({
       toBotIds: item.toBotIds,
       content: item.content,
       botId: item.bot?.id,
+      fromBotId: item.fromPeer ? item.bot?.id : undefined,
     })),
     roster,
+    viewerId,
   ).map((id) => {
     const bot = bots.find((item) => item.id === id);
     return {
@@ -85,16 +87,18 @@ function recipientFaces(items: ThreadItem[], bots: Bot[]): ThreadItem[] {
 function CollapseRow({
   items,
   bots,
+  viewerId,
   expanded,
   onToggle,
 }: {
   items: ThreadItem[];
   bots: Bot[];
+  viewerId?: string;
   expanded: boolean;
   onToggle: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const faces = recipientFaces(items, bots);
+  const faces = recipientFaces(items, bots, viewerId);
   const single = faces.length === 1 ? faces[0] : undefined;
   const label = single ? single.name : t("messagedBots", { n: faces.length });
 
@@ -144,11 +148,13 @@ function CollapseRow({
 export function Thread({
   items,
   bots = [],
+  viewerId,
   empty,
   collapseHandoffs = false,
 }: {
   items: ThreadItem[];
   bots?: Bot[];
+  viewerId?: string;
   empty: ReactNode;
   collapseHandoffs?: boolean;
 }) {
@@ -184,6 +190,7 @@ export function Thread({
               <CollapseRow
                 items={segment.items}
                 bots={bots}
+                viewerId={viewerId}
                 expanded={expanded}
                 onToggle={() =>
                   setOpenBundles((current) => ({ ...current, [key]: !current[key] }))

@@ -617,6 +617,7 @@ export function App() {
       <Sidebar
         bots={bots}
         groups={groups}
+        team={team}
         selectedId={selectedId}
         thinkingIds={thinkingIds}
         filter={filter}
@@ -795,6 +796,7 @@ export function App() {
                   <Thread
                     items={items}
                     bots={bots}
+                    viewerId={selected && !isTeam && !isGroup ? selected.id : undefined}
                     collapseHandoffs
                     empty={
                       <div className="fade-up mx-auto grid max-w-md place-items-center pt-16 text-center">

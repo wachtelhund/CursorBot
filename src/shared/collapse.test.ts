@@ -3,11 +3,15 @@ import { test } from "node:test";
 import {
   buildDmRows,
   bundleHandoffs,
+  dmActivityAt,
   handoffRecipientIds,
+  hopCounterpartIds,
   hopsFromLog,
+  hopsTowardBot,
   isHandoffMessage,
   isInspectMessage,
   isRosterNotice,
+  lastDmPreview,
   uniqueKeys,
 } from "./collapse.ts";
 
@@ -344,5 +348,150 @@ test("buildDmRows keeps mixed public text as a bubble and still attaches hops", 
       { id: "a1", inspect: false, content: "Ja. Första turen gick hälsningen ut." },
       { id: "hop-a", inspect: true, content: "@Utvecklare: hej från Chefen" },
     ],
+  );
+});
+
+const towardTeam = [
+  {
+    id: "hop-a",
+    from: "bot",
+    botId: "chef",
+    name: "Chefen",
+    content: "@Utvecklare: Hej igen.",
+    toBotIds: ["dev"],
+    source: "handoff",
+    createdAt: "2026-08-26T09:36:00Z",
+  },
+  {
+    id: "hop-b",
+    from: "bot",
+    botId: "dev",
+    name: "Utvecklare",
+    content: "Ja, jag hörde den.",
+    source: "handoff",
+    createdAt: "2026-08-26T09:36:02Z",
+  },
+];
+
+test("hopsTowardBot returns the assignment and the target reply", () => {
+  assert.deepEqual(
+    hopsTowardBot(towardTeam, "dev").map((item) => item.id),
+    ["hop-a", "hop-b"],
+  );
+  assert.deepEqual(hopsTowardBot(towardTeam, "chef").map((item) => item.id), []);
+});
+
+test("buildDmRows shows hops on an empty target DM as inspect, not user bubbles", () => {
+  const rows = buildDmRows([], {
+    speakerId: "dev",
+    thinking: false,
+    team: towardTeam,
+  });
+  assert.deepEqual(
+    rows.map((row) => ({
+      id: row.id,
+      inspect: row.inspect,
+      fromPeer: row.fromPeer,
+      role: row.role,
+    })),
+    [
+      { id: "hop-a", inspect: true, fromPeer: true, role: "assistant" },
+      { id: "hop-b", inspect: true, fromPeer: false, role: "assistant" },
+    ],
+  );
+});
+
+test("buildDmRows renders persisted target hops as inspect from the peer", () => {
+  const rows = buildDmRows(
+    [
+      {
+        id: "in",
+        role: "assistant",
+        content: "@Utvecklare: Hej igen.",
+        source: "handoff",
+        fromBotId: "chef",
+        fromName: "Chefen",
+        toBotIds: ["chef"],
+        createdAt: "2026-08-26T09:36:00Z",
+      },
+      {
+        id: "out",
+        role: "assistant",
+        content: "Ja, jag hörde den.",
+        source: "handoff",
+        fromBotId: "dev",
+        createdAt: "2026-08-26T09:36:02Z",
+      },
+    ],
+    { speakerId: "dev", thinking: false, team: towardTeam },
+  );
+  assert.deepEqual(
+    rows.map((row) => ({ id: row.id, inspect: row.inspect, fromPeer: row.fromPeer })),
+    [
+      { id: "in", inspect: true, fromPeer: true },
+      { id: "out", inspect: true, fromPeer: false },
+    ],
+  );
+});
+
+test("hopCounterpartIds shows the sender when this chat is the target", () => {
+  assert.deepEqual(
+    hopCounterpartIds(
+      [{ toBotIds: ["dev"], content: "@Utvecklare: hej", botId: "chef", fromBotId: "chef" }],
+      roster,
+      "dev",
+    ),
+    ["chef"],
+  );
+  assert.deepEqual(
+    hopCounterpartIds(
+      [{ toBotIds: ["dev"], content: "@Utvecklare: hej", botId: "chef" }],
+      roster,
+    ),
+    ["dev"],
+  );
+});
+
+test("lastDmPreview uses the hop when the DM has no user-facing text", () => {
+  assert.equal(lastDmPreview([], { botId: "dev", team: towardTeam }), "Ja, jag hörde den.");
+  assert.equal(
+    lastDmPreview(
+      [
+        {
+          id: "out",
+          role: "assistant",
+          content: "@Utvecklare: Hej igen.",
+          source: "handoff",
+          createdAt: "2026-08-26T09:36:00Z",
+        },
+      ],
+      { botId: "dev" },
+    ),
+    "@Utvecklare: Hej igen.",
+  );
+  assert.equal(
+    lastDmPreview(
+      [
+        {
+          id: "u1",
+          role: "user",
+          content: "hej",
+          createdAt: "2026-08-26T09:40:00Z",
+        },
+      ],
+      { botId: "dev", team: towardTeam },
+    ),
+    "hej",
+  );
+});
+
+test("dmActivityAt uses the later of bot.updatedAt and the last hop", () => {
+  assert.equal(
+    dmActivityAt({ id: "dev", updatedAt: "2026-08-26T09:26:00Z" }, towardTeam),
+    "2026-08-26T09:36:02Z",
+  );
+  assert.equal(
+    dmActivityAt({ id: "dev", updatedAt: "2026-08-26T10:00:00Z" }, towardTeam),
+    "2026-08-26T10:00:00Z",
   );
 });
