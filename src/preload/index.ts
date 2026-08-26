@@ -10,6 +10,7 @@ import type {
   StreamEvent,
   TeamMessage,
   UpdateBotInput,
+  RemoteAccess,
   UpdateGroupInput,
   UpsertSecretInput,
   UsagePayload,
@@ -64,6 +65,18 @@ const api = {
   checkForUpdates: (): Promise<UpdateCheckResult> =>
     ipcRenderer.invoke("updates:check"),
   applyUpdate: (): Promise<void> => ipcRenderer.invoke("updates:apply"),
+  setRemoteEnabled: (enabled: boolean): Promise<RemoteAccess> =>
+    ipcRenderer.invoke("remote:enable", enabled),
+  rotateRemote: (): Promise<RemoteAccess> => ipcRenderer.invoke("remote:rotate"),
+  setRemoteTunnel: (on: boolean): Promise<RemoteAccess> =>
+    ipcRenderer.invoke("remote:tunnel", on),
+  onRemoteChanged: (handler: (access: RemoteAccess) => void): (() => void) => {
+    const listener = (_event: unknown, data: RemoteAccess) => handler(data);
+    ipcRenderer.on("remote:changed", listener);
+    return () => {
+      ipcRenderer.removeListener("remote:changed", listener);
+    };
+  },
   onUpdateProgress: (handler: (progress: UpdateProgress) => void): (() => void) => {
     const listener = (_event: unknown, data: UpdateProgress) => handler(data);
     ipcRenderer.on("updates:progress", listener);

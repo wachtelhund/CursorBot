@@ -144,6 +144,15 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!window.cursorBotsIsRemote) return;
+    const onVis = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [load]);
+
+  useEffect(() => {
     if (typeof window.cursorBots.checkForUpdates !== "function") return;
     let cancelled = false;
     void window.cursorBots

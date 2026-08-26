@@ -1,12 +1,14 @@
 import { Agent, Cursor } from "@cursor/sdk";
 import { app, ipcMain } from "electron";
-import { parseHandoffs } from "../shared/mentions";
+import { publish } from "./bus";
 import {
-  isHarnessOnlyUserText,
-  shouldPostUserMessage,
-  shouldWakeTargets,
-} from "../shared/route";
-import { parseSendPayload, resolveSendTargets } from "../shared/send";
+  enableRemote,
+  getRemoteAccess,
+  rotateRemote,
+  startInternetLink,
+  stopInternetLink,
+} from "./remote-access";
+import { sendUserMessage } from "./send-user";
 import {
   deleteSecret,
   getPublicSettings,
@@ -16,7 +18,6 @@ import {
   upsertSecret,
 } from "./settings";
 import { releaseBotAgent } from "./cursor";
-import { applyGroupCommands, applySpawns, latestActiveId, postLog, wakeMany } from "./harness";
 import { openCloudAgent } from "./open-agent";
 import { applyLatestUpdate, fetchLatestUpdate } from "./updates";
 import {
@@ -25,7 +26,6 @@ import {
   deleteBot,
   deleteGroup,
   getBot,
-  getGroup,
   listBots,
   listGroups,
   listTeam,
@@ -45,7 +45,22 @@ import {
 } from "../shared/types";
 
 export function registerIpc(): void {
-  ipcMain.handle("settings:get", async () => getPublicSettings());
+  ipcMain.handle("settings:get", async () => ({
+    ...(await getPublicSettings()),
+    remote: await getRemoteAccess(),
+  }));
+  ipcMain.handle("remote:enable", async (_event, enabled: boolean) => enableRemote(Boolean(enabled)));
+  ipcMain.handle("remote:rotate", async () => rotateRemote());
+  ipcMain.handle("remote:tunnel", async (event, on: boolean) => {
+    if (!on) {
+      stopInternetLink();
+      return getRemoteAccess();
+    }
+    startInternetLink((access) => {
+      if (!event.sender.isDestroyed()) event.sender.send("remote:changed", access);
+    });
+    return getRemoteAccess();
+  });
   ipcMain.handle("updates:check", async () => fetchLatestUpdate(app.getVersion()));
   ipcMain.handle("updates:apply", async (event) => {
     const sender = event.sender;
@@ -91,18 +106,14 @@ export function registerIpc(): void {
       name: input.name,
       botIds: Array.isArray(input.botIds) ? input.botIds.map(String) : [],
     });
-    if (!event.sender.isDestroyed()) {
-      event.sender.send("bots:event", { type: "group", group });
-    }
+    publish({ type: "group", group });
     return group;
   });
 
   ipcMain.handle("groups:delete", async (event, groupId: string) => {
     const group = await deleteGroup(String(groupId ?? ""));
     if (!group) throw new Error("Group does not exist");
-    if (!event.sender.isDestroyed()) {
-      event.sender.send("bots:event", { type: "group-deleted", groupId: group.id });
-    }
+    publish({ type: "group-deleted", groupId: group.id });
     return { ok: true };
   });
 
@@ -114,9 +125,7 @@ export function registerIpc(): void {
         String(payload?.name ?? ""),
       );
       if (!group) throw new Error("Group does not exist");
-      if (!event.sender.isDestroyed()) {
-        event.sender.send("bots:event", { type: "group", group });
-      }
+      publish({ type: "group", group });
       return group;
     },
   );
@@ -135,9 +144,7 @@ export function registerIpc(): void {
     async (event, payload: { botId: string; name: string }) => {
       const bot = await renameBot(String(payload?.botId ?? ""), String(payload?.name ?? ""));
       if (!bot) throw new Error("Bot does not exist");
-      if (!event.sender.isDestroyed()) {
-        event.sender.send("bots:event", { type: "bot", bot });
-      }
+      publish({ type: "bot", bot });
       return bot;
     },
   );
@@ -158,9 +165,7 @@ export function registerIpc(): void {
       }
       const bot = await updateBot(String(payload?.botId ?? ""), patch);
       if (!bot) throw new Error("Bot does not exist");
-      if (!event.sender.isDestroyed()) {
-        event.sender.send("bots:event", { type: "bot", bot });
-      }
+      publish({ type: "bot", bot });
       return bot;
     },
   );
@@ -173,9 +178,7 @@ export function registerIpc(): void {
         botIds: Array.isArray(payload?.botIds) ? payload.botIds.map(String) : undefined,
       });
       if (!group) throw new Error("Group does not exist");
-      if (!event.sender.isDestroyed()) {
-        event.sender.send("bots:event", { type: "group", group });
-      }
+      publish({ type: "group", group });
       return group;
     },
   );
@@ -189,7 +192,9 @@ export function registerIpc(): void {
 
   ipcMain.handle("bots:create", async (_event, input: CreateBotInput) => {
     if (!input?.name?.trim()) throw new Error("Name is required");
-    return createBot(input);
+    const bot = await createBot(input);
+    publish({ type: "bot", bot });
+    return bot;
   });
 
   ipcMain.handle("bots:delete", async (_event, botId: string) => {
@@ -227,77 +232,8 @@ export function registerIpc(): void {
 
   ipcMain.handle(
     "bots:send",
-    async (event, payload: SendMessageInput | string, maybeText?: string) => {
-      const parsed = parseSendPayload(payload, maybeText);
-      if (!parsed.text) throw new Error("Message is required");
-
-      const bots = await listBots();
-      if (bots.length === 0) throw new Error("Create a bot first");
-      if (parsed.botId && !bots.some((bot) => bot.id === parsed.botId)) {
-        throw new Error("Bot does not exist");
-      }
-
-      const donor =
-        bots.find((bot) => bot.id === parsed.botId) ??
-        bots.find((bot) => bot.id === latestActiveId(bots)) ??
-        bots[0];
-      await applySpawns(event.sender, donor, parsed.text, null);
-      const destId = await applyGroupCommands(event.sender, null, parsed.text);
-      const fresh = await listBots();
-
-      const group = parsed.groupId
-        ? await getGroup(parsed.groupId)
-        : parsed.botId
-          ? undefined
-          : destId
-            ? await getGroup(destId)
-            : undefined;
-      if (parsed.groupId && !group) throw new Error("Group does not exist");
-
-      const pool = group
-        ? fresh.filter((bot) => group.botIds.includes(bot.id))
-        : fresh;
-      if (pool.length === 0) {
-        throw new Error(group ? "This group is empty" : "Create a bot first");
-      }
-
-      const roster = pool.map((bot) => ({ id: bot.id, name: bot.name }));
-      const mentioned = parseHandoffs(parsed.text, roster).map((item) => item.botId);
-      const fallback = latestActiveId(pool) ?? pool[0].id;
-      const targetIds = resolveSendTargets({
-        botId: parsed.botId,
-        mentionedIds: mentioned,
-        fallbackId: fallback,
-      });
-
-      const harnessOnly = isHarnessOnlyUserText(parsed.text);
-      if (
-        shouldPostUserMessage({
-          harnessOnly,
-          botId: parsed.botId,
-          groupId: group?.id,
-        })
-      ) {
-        await postLog(event.sender, group?.id, {
-          from: "user",
-          name: "You",
-          content: parsed.text,
-          toBotIds: targetIds,
-        });
-      }
-      if (shouldWakeTargets({ harnessOnly, botId: parsed.botId })) {
-        wakeMany(
-          event.sender,
-          targetIds,
-          parsed.text,
-          "user",
-          parsed.botId ? undefined : group?.id,
-          Boolean(parsed.botId),
-          parsed.sendMode,
-        );
-        return { targetIds };
-      }
-      return { targetIds: [] };
+    async (_event, payload: SendMessageInput | string, maybeText?: string) => {
+      return sendUserMessage(payload, maybeText);
     },
   );
 }

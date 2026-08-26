@@ -593,3 +593,24 @@ body.is-resizing * {
   cursor: col-resize !important;
   user-select: none !important;
 }
+
+@media (max-width: 720px) {
+  .sidebar-sheet {
+    position: fixed;
+    z-index: 15;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 52px;
+    width: auto !important;
+    box-shadow: 0 0 40px rgb(0 0 0 / 45%);
+  }
+
+  .app-drag {
+    height: max(12px, env(safe-area-inset-top));
+  }
+
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}

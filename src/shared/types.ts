@@ -138,10 +138,20 @@ export type SecretName = {
   name: string;
 };
 
+export type RemoteAccess = {
+  enabled: boolean;
+  port: number;
+  token: string;
+  lanUrls: string[];
+  publicUrl?: string;
+  error?: string;
+};
+
 export type AppSettings = {
   hasApiKey: boolean;
   secrets: SecretName[];
   appVersion?: string;
+  remote?: RemoteAccess;
 };
 
 export type UpsertSecretInput = {

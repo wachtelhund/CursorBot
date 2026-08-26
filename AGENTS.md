@@ -30,6 +30,7 @@ Bots do not share Cloud Agent memory. The app is the bus (same idea as Paperclip
 - Shared tokens are env vars on every `Agent.create` / `agent.send`. Names must not start with `CURSOR_`.
 - GitHub / AWS / Cloudflare logins stay in Cursor Integrations + MCP.
 - Local MCP server `cursor-bots` (stdio, `.cursor/mcp.json`) reads the app `store.json` so Cursor agents can inspect live Team / DM / group threads — list bots, groups, and threads, then `get_thread` / `get_messages` for stored inspect / handoff / klartext fields. It does not read `settings.json` or token values.
+- Phone access: main process HTTP server (default port 47821, token in settings). Same store/harness as the desktop window. Events go through `publish` on the bus (all windows + SSE). Optional `cloudflared` quick tunnel for a public HTTPS link. The desktop app must stay open.
 
 ## Run
 

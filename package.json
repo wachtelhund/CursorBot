@@ -58,7 +58,8 @@
       "category": "public.app-category.productivity",
       "extendInfo": {
         "CFBundleName": "Cursor Bots",
-        "CFBundleDisplayName": "Cursor Bots"
+        "CFBundleDisplayName": "Cursor Bots",
+        "NSLocalNetworkUsageDescription": "Cursor Bots shares the chat UI with your phone on the local network."
       },
       "target": [
         "dmg"

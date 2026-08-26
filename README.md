@@ -44,6 +44,14 @@ xattr -cr "/Applications/Cursor Bots.app"
 
 3. Open **Cursor Bots** again.
 
+### Phone
+
+Keep the desktop app open. Settings → **Phone** shows a local link (`http://your-lan-ip:47821/#t=…`). Open it on your phone on the same Wi‑Fi. The token in the link is the password — use **New link** if it leaks.
+
+**Internet:** Settings → **Internet link** starts a Cloudflare quick tunnel if `cloudflared` is installed (`brew install cloudflared`). Or install [Tailscale](https://tailscale.com) on the computer and the phone and use the local link with the Tailscale IP.
+
+The Mac/PC runs the Cloud Agents. The phone is a remote control, not a second backend.
+
 ### Updates
 
 Settings → **Check for updates**, or the **Update to x.y.z** banner, downloads the installer for this machine and installs it. The app restarts when it is done. It does not open GitHub.

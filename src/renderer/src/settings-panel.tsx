@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AppSettings, SecretName } from "@shared/types";
+import type { AppSettings, RemoteAccess, SecretName } from "@shared/types";
 import type { UpdateCheckResult, UpdateProgress } from "@shared/updates";
 import { t } from "./i18n";
 import { CrossIcon } from "./icons";
@@ -38,6 +38,20 @@ export function SettingsPanel({
   const [checkError, setCheckError] = useState<string | null>(null);
   const [progress, setProgress] = useState<UpdateProgress | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [remote, setRemote] = useState<RemoteAccess | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [tunnelBusy, setTunnelBusy] = useState(false);
+  const isPhone = Boolean(window.cursorBotsIsRemote);
+
+  useEffect(() => {
+    void window.cursorBots.getSettings().then((settings) => {
+      if (settings.remote) setRemote(settings.remote);
+    });
+    return window.cursorBots.onRemoteChanged?.((access) => {
+      setRemote(access);
+      setTunnelBusy(false);
+    });
+  }, []);
 
   useEffect(() => {
     return window.cursorBots.onUpdateProgress?.((next) => {
@@ -134,6 +148,7 @@ export function SettingsPanel({
           </button>
         </div>
 
+        {!isPhone && (
         <div className="mt-4">
           <h3 className="text-[13px] font-medium text-ink">{t("updates")}</h3>
           {appVersion && (
@@ -181,6 +196,87 @@ export function SettingsPanel({
             {checkStatus === "checking" ? t("checkingForUpdates") : t("checkForUpdates")}
           </button>
         </div>
+        )}
+
+        {!isPhone && (
+          <div className="mt-6 border-t border-line pt-5">
+            <h3 className="text-[13px] font-medium text-ink">{t("phoneAccess")}</h3>
+            <p className="mt-1 text-[13px] leading-5 text-mute">{t("phoneHelp")}</p>
+            <label className="mt-3 flex items-center gap-2 text-[13px] text-ink">
+              <input
+                type="checkbox"
+                checked={remote?.enabled ?? true}
+                onChange={(event) => {
+                  void window.cursorBots.setRemoteEnabled?.(event.target.checked).then(setRemote);
+                }}
+              />
+              {t("phoneEnable")}
+            </label>
+            {remote?.enabled && (
+              <div className="mt-3 space-y-2">
+                {remote.lanUrls.length === 0 ? (
+                  <p className="text-[12px] text-mute">{t("phoneNoLan")}</p>
+                ) : (
+                  <ul className="space-y-1">
+                    <li className="text-[12px] text-mute">{t("phoneLinks")}</li>
+                    {remote.lanUrls.map((url) => (
+                      <li key={url}>
+                        <code className="block break-all text-[12px] text-ink">{url}</code>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {remote.publicUrl && (
+                  <code className="block break-all text-[12px] text-accent">{remote.publicUrl}</code>
+                )}
+                {remote.error && <p className="text-[12px] text-danger">{remote.error}</p>}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = remote.publicUrl ?? remote.lanUrls[0];
+                      if (!url) return;
+                      void navigator.clipboard.writeText(url).then(() => {
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 1500);
+                      });
+                    }}
+                    className="rounded-full bg-white px-3 py-1.5 text-sm font-medium text-black"
+                  >
+                    {copied ? t("phoneCopied") : t("phoneCopy")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void window.cursorBots.rotateRemote?.().then(setRemote)}
+                    className="rounded-full px-3 py-1.5 text-sm text-mute hover:text-ink"
+                  >
+                    {t("phoneRotate")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={tunnelBusy}
+                    onClick={() => {
+                      setTunnelBusy(true);
+                      void window.cursorBots
+                        .setRemoteTunnel?.(!remote.publicUrl)
+                        .then((access) => {
+                          setRemote(access);
+                          if (remote.publicUrl) setTunnelBusy(false);
+                        });
+                    }}
+                    className="rounded-full px-3 py-1.5 text-sm text-mute hover:text-ink disabled:opacity-30"
+                  >
+                    {tunnelBusy
+                      ? t("phoneInternetWait")
+                      : remote.publicUrl
+                        ? t("phoneInternetStop")
+                        : t("phoneInternet")}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <form
           className="mt-6 border-t border-line pt-5"
@@ -218,6 +314,7 @@ export function SettingsPanel({
           </div>
         </form>
 
+        {!isPhone && (
         <div className="mt-6 border-t border-line pt-5">
           <h3 className="text-[13px] font-medium text-ink">{t("sharedSecrets")}</h3>
           <p className="mt-1 text-[13px] leading-5 text-mute">{t("secretsHelp")}</p>
@@ -284,6 +381,7 @@ export function SettingsPanel({
             </button>
           </form>
         </div>
+        )}
       </div>
     </div>
   );

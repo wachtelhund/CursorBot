@@ -9,6 +9,7 @@ import type {
   StreamEvent,
   TeamMessage,
   UpdateBotInput,
+  RemoteAccess,
   UpdateGroupInput,
   UpsertSecretInput,
   UsagePayload,
@@ -40,5 +41,9 @@ export type CursorBotsApi = {
   checkForUpdates?: () => Promise<UpdateCheckResult>;
   applyUpdate?: () => Promise<void>;
   onUpdateProgress?: (handler: (progress: UpdateProgress) => void) => () => void;
+  setRemoteEnabled?: (enabled: boolean) => Promise<RemoteAccess>;
+  rotateRemote?: () => Promise<RemoteAccess>;
+  setRemoteTunnel?: (on: boolean) => Promise<RemoteAccess>;
+  onRemoteChanged?: (handler: (access: RemoteAccess) => void) => () => void;
   onEvent: (handler: (event: StreamEvent) => void) => () => void;
 };

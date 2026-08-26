@@ -7,6 +7,8 @@ type SettingsFile = {
   apiKey?: string;
   secretsEnc?: string;
   secrets?: Record<string, string>;
+  remoteToken?: string;
+  remoteEnabled?: boolean;
 };
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -132,6 +134,38 @@ export async function upsertSecret(name: string, value: string): Promise<void> {
     secretsEnc: undefined,
     ...encoded,
   });
+}
+
+export async function getRemoteConfig(): Promise<{ token: string; enabled: boolean }> {
+  const current = await readSettings();
+  const token = current.remoteToken?.trim();
+  if (token) {
+    return { token, enabled: current.remoteEnabled !== false };
+  }
+  const { randomBytes } = await import("node:crypto");
+  const next = randomBytes(18).toString("base64url");
+  current.remoteToken = next;
+  if (current.remoteEnabled === undefined) current.remoteEnabled = true;
+  await writeSettings(current);
+  return { token: next, enabled: current.remoteEnabled !== false };
+}
+
+export async function setRemoteEnabled(enabled: boolean): Promise<{ token: string; enabled: boolean }> {
+  const existing = await getRemoteConfig();
+  const current = await readSettings();
+  current.remoteToken = existing.token;
+  current.remoteEnabled = enabled;
+  await writeSettings(current);
+  return { token: existing.token, enabled };
+}
+
+export async function rotateRemoteToken(): Promise<{ token: string; enabled: boolean }> {
+  const { randomBytes } = await import("node:crypto");
+  const current = await readSettings();
+  const next = randomBytes(18).toString("base64url");
+  current.remoteToken = next;
+  await writeSettings(current);
+  return { token: next, enabled: current.remoteEnabled !== false };
 }
 
 export async function deleteSecret(name: string): Promise<void> {

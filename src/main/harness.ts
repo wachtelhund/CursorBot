@@ -1,5 +1,6 @@
 import { AgentBusyError, AgentNotFoundError, CursorAgentError, type Run } from "@cursor/sdk";
 import type { WebContents } from "electron";
+import { publish } from "./bus";
 import { parseGroupCommands } from "../shared/groups";
 import { publicBotText } from "../shared/mentions";
 import { sendDelivery, type SendMode } from "../shared/send-mode";
@@ -34,7 +35,7 @@ import {
 } from "./store";
 
 export type Wake = {
-  sender: WebContents;
+  sender?: WebContents;
   botId: string;
   text: string;
   source: WakeSource;
@@ -53,9 +54,8 @@ const busy = new Set<string>();
 const activeRuns = new Map<string, Run>();
 const turnGen = new Map<string, number>();
 
-function emit(sender: WebContents, event: StreamEvent) {
-  if (sender.isDestroyed()) return;
-  sender.send("bots:event", event);
+function emit(_sender: WebContents | undefined, event: StreamEvent) {
+  publish(event);
 }
 
 function queuedCount(botId: string): number {
@@ -126,7 +126,7 @@ async function rosterOf() {
 }
 
 export async function postTeam(
-  sender: WebContents,
+  sender: WebContents | undefined,
   message: Omit<TeamMessage, "id" | "createdAt">,
 ): Promise<void> {
   const saved = await appendTeamMessage(message);
@@ -134,7 +134,7 @@ export async function postTeam(
 }
 
 export async function postGroup(
-  sender: WebContents,
+  sender: WebContents | undefined,
   groupId: string,
   message: Omit<TeamMessage, "id" | "createdAt">,
 ): Promise<void> {
@@ -144,7 +144,7 @@ export async function postGroup(
 }
 
 export async function postLog(
-  sender: WebContents,
+  sender: WebContents | undefined,
   groupId: string | undefined,
   message: Omit<TeamMessage, "id" | "createdAt">,
 ): Promise<void> {
@@ -159,7 +159,7 @@ export function latestActiveId(bots: { id: string; updatedAt: string }[]): strin
   return [...bots].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]?.id;
 }
 
-function emitQueued(sender: WebContents, botId: string): void {
+function emitQueued(sender: WebContents | undefined, botId: string): void {
   emit(sender, { type: "thinking", botId, thinking: true });
   emit(sender, {
     type: "status",
@@ -206,7 +206,7 @@ export function wake(input: Wake): void {
 }
 
 export function wakeMany(
-  sender: WebContents,
+  sender: WebContents | undefined,
   botIds: string[],
   text: string,
   source: WakeSource = "user",
@@ -230,7 +230,7 @@ export function wakeMany(
 }
 
 export async function applySpawns(
-  sender: WebContents,
+  sender: WebContents | undefined,
   parent: Bot,
   text: string,
   speaker?: { id?: string; name: string } | null,
@@ -302,7 +302,7 @@ function resolveMemberIds(names: string[], bots: Bot[]): string[] {
 }
 
 export async function applyGroupCommands(
-  sender: WebContents,
+  sender: WebContents | undefined,
   speaker: { id: string; name: string } | null,
   text: string,
 ): Promise<string | undefined> {
@@ -384,7 +384,7 @@ export async function applyGroupCommands(
 }
 
 async function postOriginResult(
-  sender: WebContents,
+  sender: WebContents | undefined,
   thread: ReturnType<typeof resolveLogThread>,
   originBotId: string | undefined,
   input: { botId: string; name: string; content: string },

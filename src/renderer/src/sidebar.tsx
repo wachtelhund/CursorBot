@@ -154,6 +154,20 @@ function OverflowMenu({
   );
 }
 
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < 720,
+  );
+  useEffect(() => {
+    function onResize() {
+      setNarrow(window.innerWidth < 720);
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return narrow;
+}
+
 function readListWidth(): number {
   try {
     const raw = Number(localStorage.getItem(WIDTH_KEY));
@@ -369,7 +383,8 @@ export function Sidebar({
   onDeleteGroup,
   onSettings,
 }: SidebarProps) {
-  const [listWidth, setListWidth] = useState(readListWidth);
+  const narrow = useNarrow();
+  const [listWidth, setListWidth] = useState(() => (window.innerWidth < 720 ? 0 : readListWidth()));
   const [resizing, setResizing] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const drag = useRef<{ startX: number; startW: number } | null>(null);
@@ -434,8 +449,13 @@ export function Sidebar({
     document.body.classList.add("is-resizing");
   }
 
+  function pickChat(id: string) {
+    onSelect(id);
+    if (narrow) setListWidth(0);
+  }
+
   return (
-    <aside className="relative flex h-full shrink-0">
+    <aside className={`relative flex h-full shrink-0 ${narrow ? "is-narrow" : ""}`}>
       <div className="flex w-[52px] shrink-0 flex-col items-center border-r border-line bg-surface-alt pb-3">
         <div className="app-drag h-11 w-full shrink-0" />
         <div className="flex flex-1 flex-col items-center gap-1">
@@ -449,7 +469,7 @@ export function Sidebar({
           </button>
           <button
             type="button"
-            onClick={() => onSelect(TEAM_SCOPE)}
+            onClick={() => pickChat(TEAM_SCOPE)}
             className={`grid size-9 place-items-center rounded-lg ${
               selectedId === TEAM_SCOPE ? "bg-white/10 text-ink" : "text-mute hover:bg-white/5 hover:text-ink"
             }`}
@@ -470,8 +490,8 @@ export function Sidebar({
 
       {!collapsed && (
         <div
-          className="flex min-w-0 flex-col border-r border-line bg-surface-alt"
-          style={{ width: listWidth }}
+          className={`flex min-w-0 flex-col border-r border-line bg-surface-alt ${narrow ? "sidebar-sheet" : ""}`}
+          style={{ width: narrow ? undefined : listWidth }}
         >
           <div className="app-drag h-11 shrink-0" />
           <div className="px-3 pb-3">
@@ -497,7 +517,7 @@ export function Sidebar({
           <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
             <button
               type="button"
-              onClick={() => onSelect(TEAM_SCOPE)}
+              onClick={() => pickChat(TEAM_SCOPE)}
               className={`mb-1 flex w-full items-center gap-3 rounded-2xl px-2.5 py-2 text-left ${
                 selectedId === TEAM_SCOPE ? "bg-white/[0.07]" : "hover:bg-white/[0.03]"
               }`}
@@ -536,7 +556,7 @@ export function Sidebar({
                     thinking={thinkingIds.some((id) => group.botIds.includes(id))}
                     menuOpen={openMenuId === group.id}
                     onMenuOpenChange={(open) => setOpenMenuId(open ? group.id : null)}
-                    onSelect={() => onSelect(group.id)}
+                    onSelect={() => pickChat(group.id)}
                     onEdit={() => onEditGroup(group)}
                     onDelete={() => onDeleteGroup(group)}
                   />
@@ -562,7 +582,7 @@ export function Sidebar({
                         thinking={thinkingIds.includes(bot.id)}
                         menuOpen={openMenuId === bot.id}
                         onMenuOpenChange={(open) => setOpenMenuId(open ? bot.id : null)}
-                        onSelect={() => onSelect(bot.id)}
+                        onSelect={() => pickChat(bot.id)}
                         onPin={() => onPin(bot)}
                         onEdit={() => onEdit(bot)}
                         onOpenAgent={() => onOpenAgent(bot)}
@@ -584,7 +604,7 @@ export function Sidebar({
                         thinking={thinkingIds.includes(bot.id)}
                         menuOpen={openMenuId === bot.id}
                         onMenuOpenChange={(open) => setOpenMenuId(open ? bot.id : null)}
-                        onSelect={() => onSelect(bot.id)}
+                        onSelect={() => pickChat(bot.id)}
                         onPin={() => onPin(bot)}
                         onEdit={() => onEdit(bot)}
                         onOpenAgent={() => onOpenAgent(bot)}
@@ -600,14 +620,16 @@ export function Sidebar({
         </div>
       )}
 
-      <button
-        type="button"
-        aria-label={t("resizeSidebarAria")}
-        title={t("resizeSidebarTitle")}
-        onPointerDown={startResize}
-        onDoubleClick={() => setListWidth(LIST_DEFAULT)}
-        className={`sidebar-resizer ${resizing ? "is-active" : ""}`}
-      />
+      {!narrow && (
+        <button
+          type="button"
+          aria-label={t("resizeSidebarAria")}
+          title={t("resizeSidebarTitle")}
+          onPointerDown={startResize}
+          onDoubleClick={() => setListWidth(LIST_DEFAULT)}
+          className={`sidebar-resizer ${resizing ? "is-active" : ""}`}
+        />
+      )}
     </aside>
   );
 }
