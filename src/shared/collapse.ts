@@ -1,11 +1,20 @@
-import { isAssignmentPing, parseHandoffs, publicBotText, type RosterEntry } from "./mentions.ts";
+import {
+  isAssignmentPing,
+  parseHandoffs,
+  publicBotText,
+  routingText,
+  type RosterEntry,
+} from "./mentions.ts";
 
 export type InspectMessage = {
+  id?: string;
   from: string;
+  name?: string;
   content: string;
   toBotIds?: string[];
   source?: string;
   botId?: string;
+  createdAt?: string;
 };
 
 export type LogHop = InspectMessage & {
@@ -132,10 +141,10 @@ export function isInspectMessage(
   if (message.from === "user") return false;
   if (message.source === "system") return true;
   if (isRosterNotice(message.content)) return true;
-  if (isAssignmentPing(message.content)) return true;
-  // Klartext is for the human — even after a hop or with source:handoff.
-  if (isUserFacingBotText(message.content)) return false;
+  // Hop persist stays inspect. The user-thread copy is written without source:handoff.
   if (message.source === "handoff") return true;
+  if (isAssignmentPing(message.content)) return true;
+  if (isUserFacingBotText(message.content)) return false;
   if (isHandoffMessage(message)) return true;
   for (let index = previous.length - 1; index >= 0; index -= 1) {
     const prev = previous[index];
@@ -150,6 +159,138 @@ export function isInspectMessage(
     }
   }
   return false;
+}
+
+export function shouldHideRow(input: {
+  role: "user" | "assistant";
+  content: string;
+  inspect?: boolean;
+  thinking?: boolean;
+}): boolean {
+  if (input.role === "user") return false;
+  if (input.thinking) return false;
+  return !input.content.trim();
+}
+
+export type LogRow = {
+  id: string;
+  author: "user" | "bot";
+  name: string;
+  content: string;
+  inspect: boolean;
+  botId?: string;
+  toBotIds?: string[];
+  createdAt?: string;
+  thinking?: boolean;
+};
+
+export type LiveLog = {
+  botId: string;
+  name: string;
+  text: string;
+  source?: string;
+};
+
+export function buildLogRows(
+  messages: InspectMessage[],
+  live: LiveLog[] = [],
+): LogRow[] {
+  const rows: LogRow[] = [];
+  for (const [index, message] of messages.entries()) {
+    if (message.source === "system" || isRosterNotice(message.content)) continue;
+    const inspect = isInspectMessage(message, messages.slice(0, index));
+    const routing =
+      message.from === "bot" && !inspect ? routingText(message.content) : "";
+    const content =
+      message.from === "bot" && !inspect
+        ? publicBotText(message.content)
+        : message.content;
+    if (
+      shouldHideRow({
+        role: message.from === "user" ? "user" : "assistant",
+        content,
+      })
+    ) {
+      if (routing) {
+        rows.push({
+          id: `${message.id ?? `row_${index}`}:hop`,
+          author: "bot",
+          name: message.name ?? "",
+          content: routing,
+          inspect: true,
+          botId: message.botId,
+          toBotIds: message.toBotIds,
+          createdAt: message.createdAt,
+        });
+      }
+      continue;
+    }
+    rows.push({
+      id: message.id ?? `row_${index}`,
+      author: message.from === "user" ? "user" : "bot",
+      name: message.name ?? "",
+      content,
+      inspect,
+      botId: message.botId,
+      toBotIds: message.toBotIds,
+      createdAt: message.createdAt,
+    });
+    if (routing) {
+      rows.push({
+        id: `${message.id ?? `row_${index}`}:hop`,
+        author: "bot",
+        name: message.name ?? "",
+        content: routing,
+        inspect: true,
+        botId: message.botId,
+        toBotIds: message.toBotIds,
+        createdAt: message.createdAt,
+      });
+    }
+  }
+
+  for (const item of live) {
+    const inspect = isInspectMessage(
+      { from: "bot", content: item.text, botId: item.botId, source: item.source },
+      messages,
+    );
+    const content = inspect ? item.text : publicBotText(item.text);
+    if (shouldHideRow({ role: "assistant", content, thinking: true }) && !inspect) {
+      continue;
+    }
+    if (!inspect && !content.trim()) continue;
+    const already = messages.some((message) => {
+      if (message.id && message.id === item.botId) return true;
+      if (!content) return false;
+      return (
+        message.content === content || publicBotText(message.content) === content
+      );
+    });
+    if (already) continue;
+    rows.push({
+      id: `live_${item.botId}`,
+      author: "bot",
+      name: item.name,
+      content,
+      inspect,
+      botId: item.botId,
+      thinking: true,
+    });
+  }
+  return rows;
+}
+
+export function mergeBusLogs<T extends LogHop>(...logs: T[][]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const log of logs) {
+    for (const message of log) {
+      if (seen.has(message.id)) continue;
+      seen.add(message.id);
+      out.push(message);
+    }
+  }
+  return out.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 }
 
 export function isUserFacingBotText(content: string): boolean {
@@ -185,15 +326,6 @@ export function hopsFromLog<T extends LogHop>(
     hops.push(message);
   }
   return hops;
-}
-
-function sameAssignment(message: DmMessage, hop: LogHop, speakerId: string): boolean {
-  if (hop.botId !== speakerId) return false;
-  return hop.content.trim() === message.content.trim();
-}
-
-function sameHopContent(message: { content: string }, hop: { content: string }): boolean {
-  return message.content.trim() === hop.content.trim();
 }
 
 /** Assignments to this bot plus that bot's handoff replies — for the target DM. */
@@ -243,7 +375,7 @@ export function lastDmPreview(
     const message = messages[index];
     if (message.role === "user") return message.content;
     if (message.source === "handoff") {
-      const text = message.content.trim();
+      const text = publicBotText(message.content) || message.content.trim();
       if (text) return text;
       continue;
     }
@@ -329,12 +461,21 @@ export function buildDmRows(
               : input.speakerId,
         })),
       );
+    const routing =
+      message.role === "assistant" && !inspect
+        ? routingText(message.content)
+        : "";
     const content =
       message.role === "assistant" && !inspect
         ? publicBotText(message.content)
         : message.content;
-    const thinking = Boolean(isLast && input.thinking && !content.trim());
-    const hide = message.role !== "user" && !inspect && !content.trim() && !thinking;
+    const thinking = Boolean(isLast && input.thinking && !content.trim() && !routing);
+    const hide = shouldHideRow({
+      role: message.role,
+      content,
+      inspect,
+      thinking,
+    });
 
     if (!hide) {
       push({
@@ -350,19 +491,18 @@ export function buildDmRows(
         createdAt: message.createdAt,
       });
     }
-
-    if (message.role !== "assistant") continue;
-    if (message.source === "handoff") continue;
-    const nextUser = messages.slice(index + 1).find((item) => item.role === "user");
-    for (const hop of hopsFromLog(input.team, {
-      speakerId: input.speakerId,
-      since: message.createdAt,
-      until: nextUser?.createdAt,
-    })) {
-      if (isRosterNotice(hop.content) || hop.source === "system") continue;
-      if (sameAssignment(message, hop, input.speakerId)) continue;
-      if (messages.some((item) => sameHopContent(item, hop))) continue;
-      push(hopToRow(hop, input.speakerId));
+    if (routing) {
+      push({
+        id: `${message.id}:hop`,
+        role: "assistant",
+        content: routing,
+        inspect: true,
+        fromPeer,
+        fromBotId: fromPeer ? message.fromBotId : undefined,
+        fromName: message.fromName,
+        toBotIds: message.toBotIds,
+        createdAt: message.createdAt,
+      });
     }
   }
 

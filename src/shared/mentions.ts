@@ -1,4 +1,5 @@
 import { isGroupCommandLine } from "./groups.ts";
+import { parseSpawns } from "./spawn.ts";
 
 export type RosterEntry = {
   id: string;
@@ -34,6 +35,20 @@ export function stripRoutingLines(text: string): string {
     .filter((line) => !isRoutingLine(line))
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export function routingText(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!isRoutingLine(trimmed)) return false;
+      if (isGroupCommandLine(trimmed)) return false;
+      if (parseSpawns(trimmed).length > 0) return false;
+      return true;
+    })
+    .join("\n")
     .trim();
 }
 

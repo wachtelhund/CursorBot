@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   buildDmRows,
+  buildLogRows,
   bundleHandoffs,
   dmActivityAt,
   handoffRecipientIds,
@@ -12,6 +13,8 @@ import {
   isInspectMessage,
   isRosterNotice,
   lastDmPreview,
+  mergeBusLogs,
+  shouldHideRow,
   uniqueKeys,
 } from "./collapse.ts";
 
@@ -170,13 +173,21 @@ test("isInspectMessage hides assignments, roster echoes, and empty hops", () => 
   );
 });
 
-test("isInspectMessage shows a public hop result as klartext, not inspect", () => {
+test("isInspectMessage keeps source:handoff on the target DM as inspect", () => {
   assert.equal(
     isInspectMessage({
       from: "bot",
       botId: "ediel",
       content: "Oförändrat 26 aug, inkorgen just kollad.",
       source: "handoff",
+    }),
+    true,
+  );
+  assert.equal(
+    isInspectMessage({
+      from: "bot",
+      botId: "ediel",
+      content: "Oförändrat 26 aug, inkorgen just kollad.",
     }),
     false,
   );
@@ -235,7 +246,7 @@ test("hopsFromLog returns the assignment and the target reply", () => {
   );
 });
 
-test("buildDmRows keeps a blank DM assistant inspectable via team hops", () => {
+test("buildDmRows does not copy Team hops into a DM that already has a user turn", () => {
   const rows = buildDmRows(
     [
       {
@@ -279,11 +290,7 @@ test("buildDmRows keeps a blank DM assistant inspectable via team hops", () => {
   );
   assert.deepEqual(
     rows.map((row) => ({ id: row.id, inspect: row.inspect, fromPeer: row.fromPeer })),
-    [
-      { id: "u1", inspect: false, fromPeer: false },
-      { id: "hop-a", inspect: true, fromPeer: false },
-      { id: "hop-b", inspect: false, fromPeer: true },
-    ],
+    [{ id: "u1", inspect: false, fromPeer: false }],
   );
 });
 
@@ -438,7 +445,7 @@ test("buildDmRows keeps mixed public text as a bubble and still attaches hops", 
     [
       { id: "u1", inspect: false, content: "skickade du något då?" },
       { id: "a1", inspect: false, content: "Ja. Första turen gick hälsningen ut." },
-      { id: "hop-a", inspect: true, content: "@Utvecklare: hej från Chefen" },
+      { id: "a1:hop", inspect: true, content: "@Utvecklare: hej från Chefen" },
     ],
   );
 });
@@ -488,7 +495,7 @@ test("buildDmRows shows hops on an empty target DM as inspect, not user bubbles"
     })),
     [
       { id: "hop-a", inspect: true, fromPeer: true, role: "assistant" },
-      { id: "hop-b", inspect: false, fromPeer: false, role: "assistant" },
+      { id: "hop-b", inspect: true, fromPeer: false, role: "assistant" },
     ],
   );
 });
@@ -521,7 +528,7 @@ test("buildDmRows renders persisted target hops as inspect from the peer", () =>
     rows.map((row) => ({ id: row.id, inspect: row.inspect, fromPeer: row.fromPeer })),
     [
       { id: "in", inspect: true, fromPeer: true },
-      { id: "out", inspect: false, fromPeer: false },
+      { id: "out", inspect: true, fromPeer: false },
     ],
   );
 });
@@ -587,3 +594,243 @@ test("dmActivityAt uses the later of bot.updatedAt and the last hop", () => {
     "2026-08-26T10:00:00Z",
   );
 });
+
+test("shouldHideRow drops leftover empty assistant rows, not thinking or user text", () => {
+  assert.equal(shouldHideRow({ role: "user", content: "" }), false);
+  assert.equal(shouldHideRow({ role: "assistant", content: "", thinking: true }), false);
+  assert.equal(shouldHideRow({ role: "assistant", content: "", inspect: true }), true);
+  assert.equal(shouldHideRow({ role: "assistant", content: "Hej" }), false);
+});
+
+test("lastDmPreview prefers hop public text so the sidebar is not empty after a hop", () => {
+  assert.equal(
+    lastDmPreview(
+      [
+        {
+          id: "out",
+          role: "assistant",
+          content: "@Chef: done\nOförändrat 26 aug.",
+          source: "handoff",
+          createdAt: "2026-08-26T09:36:02Z",
+        },
+      ],
+      { botId: "ediel" },
+    ),
+    "Oförändrat 26 aug.",
+  );
+});
+
+test("mergeBusLogs unions Team and group hops so a group hop is visible in the target DM", () => {
+  const groupHop = {
+    id: "g1",
+    from: "bot" as const,
+    botId: "chef",
+    content: "@Utvecklare: gör X",
+    toBotIds: ["dev"],
+    source: "handoff",
+    createdAt: "2026-08-26T11:00:00Z",
+  };
+  const merged = mergeBusLogs(towardTeam, [groupHop]);
+  assert.deepEqual(
+    hopsTowardBot(merged, "dev").map((item) => item.id),
+    ["hop-a", "hop-b", "g1"],
+  );
+});
+
+test("buildLogRows keeps Team klartext and hides assignments plus spawn echoes", () => {
+  const rows = buildLogRows([
+    {
+      id: "u1",
+      from: "user",
+      name: "Du",
+      content: "fråga @Ediel Expert vad senaste status är",
+      createdAt: "2026-08-26T10:00:00Z",
+    },
+    {
+      id: "sys",
+      from: "bot",
+      name: "Chief",
+      botId: "chef",
+      content: "Chief skapade Tester",
+      source: "system",
+      createdAt: "2026-08-26T10:00:01Z",
+    },
+    {
+      id: "a1",
+      from: "bot",
+      name: "Chief",
+      botId: "chef",
+      content: "@Ediel Expert: Vad är senaste status?",
+      toBotIds: ["ediel"],
+      source: "handoff",
+      createdAt: "2026-08-26T10:00:02Z",
+    },
+    {
+      id: "r1",
+      from: "bot",
+      name: "Ediel Expert",
+      botId: "ediel",
+      content: "Oförändrat 26 aug, inkorgen just kollad.",
+      createdAt: "2026-08-26T10:00:03Z",
+    },
+    {
+      id: "relay",
+      from: "bot",
+      name: "Chief",
+      botId: "chef",
+      content: "Ediel säger att inget ändrats.",
+      createdAt: "2026-08-26T10:00:04Z",
+    },
+  ]);
+  assert.deepEqual(
+    rows.map((row) => ({ id: row.id, inspect: row.inspect, content: row.content })),
+    [
+      {
+        id: "u1",
+        inspect: false,
+        content: "fråga @Ediel Expert vad senaste status är",
+      },
+      {
+        id: "a1",
+        inspect: true,
+        content: "@Ediel Expert: Vad är senaste status?",
+      },
+      {
+        id: "r1",
+        inspect: false,
+        content: "Oförändrat 26 aug, inkorgen just kollad.",
+      },
+      {
+        id: "relay",
+        inspect: false,
+        content: "Ediel säger att inget ändrats.",
+      },
+    ],
+  );
+});
+
+test("buildLogRows splits a mixed Team blob into klartext plus inspect", () => {
+  const rows = buildLogRows([
+    {
+      id: "m1",
+      from: "bot",
+      name: "Chief",
+      botId: "chef",
+      content: "Jag tar det.\n@Ediel Expert: status",
+      createdAt: "2026-08-26T10:00:00Z",
+    },
+  ]);
+  assert.deepEqual(
+    rows.map((row) => ({ id: row.id, inspect: row.inspect, content: row.content })),
+    [
+      { id: "m1", inspect: false, content: "Jag tar det." },
+      { id: "m1:hop", inspect: true, content: "@Ediel Expert: status" },
+    ],
+  );
+});
+
+test("buildLogRows does not surface a live hop stream as klartext", () => {
+  const rows = buildLogRows(
+    [
+      {
+        id: "u1",
+        from: "user",
+        name: "Du",
+        content: "kolla status",
+        createdAt: "2026-08-26T10:00:00Z",
+      },
+      {
+        id: "a1",
+        from: "bot",
+        name: "Chief",
+        botId: "chef",
+        content: "@Ediel Expert: status",
+        toBotIds: ["ediel"],
+        source: "handoff",
+        createdAt: "2026-08-26T10:00:01Z",
+      },
+    ],
+    [
+      {
+        botId: "ediel",
+        name: "Ediel Expert",
+        text: "Oförändrat 26 aug.",
+        source: "handoff",
+      },
+    ],
+  );
+  assert.deepEqual(
+    rows.map((row) => ({ id: row.id, inspect: row.inspect, thinking: Boolean(row.thinking) })),
+    [
+      { id: "u1", inspect: false, thinking: false },
+      { id: "a1", inspect: true, thinking: false },
+      { id: "live_ediel", inspect: true, thinking: true },
+    ],
+  );
+});
+
+test("buildLogRows hides an empty leftover assistant and skips a duplicate live row", () => {
+  const rows = buildLogRows(
+    [
+      {
+        id: "u1",
+        from: "user",
+        name: "Du",
+        content: "hej",
+        createdAt: "2026-08-26T10:00:00Z",
+      },
+      {
+        id: "empty",
+        from: "bot",
+        name: "Chief",
+        botId: "chef",
+        content: "",
+        createdAt: "2026-08-26T10:00:01Z",
+      },
+      {
+        id: "r1",
+        from: "bot",
+        name: "Chief",
+        botId: "chef",
+        content: "Hej, jag tar det.",
+        createdAt: "2026-08-26T10:00:02Z",
+      },
+    ],
+    [{ botId: "chef", name: "Chief", text: "Hej, jag tar det." }],
+  );
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["u1", "r1"],
+  );
+});
+
+test("buildDmRows hides a leftover empty hop assistant after the run is done", () => {
+  const rows = buildDmRows(
+    [
+      {
+        id: "in",
+        role: "assistant",
+        content: "@Utvecklare: Hej igen.",
+        source: "handoff",
+        fromBotId: "chef",
+        fromName: "Chefen",
+        toBotIds: ["chef"],
+        createdAt: "2026-08-26T09:36:00Z",
+      },
+      {
+        id: "empty",
+        role: "assistant",
+        content: "",
+        source: "handoff",
+        fromBotId: "dev",
+        createdAt: "2026-08-26T09:36:01Z",
+      },
+    ],
+    { speakerId: "dev", thinking: false, team: [] },
+  );
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ["in"],
+  );
+});
+

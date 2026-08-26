@@ -8,6 +8,7 @@ import {
   mentionQueryAt,
   parseHandoffs,
   publicBotText,
+  routingText,
   stripRoutingLines,
 } from "./mentions.ts";
 
@@ -206,6 +207,15 @@ test("stripRoutingLines drops @ny, @team and @Name lines from a bot result", () 
   );
   assert.equal(isRoutingLine("@Apptestare: stå upp"), true);
   assert.equal(isRoutingLine("Klart. Apptestare är tillagd."), false);
+});
+
+test("routingText keeps @Name assignments and drops spawn/group commands", () => {
+  assert.equal(
+    routingText("Klart.\n@Utvecklare: hej från Chefen\nSkickat."),
+    "@Utvecklare: hej från Chefen",
+  );
+  assert.equal(routingText("@ny Tester: QA\n@team App: Tester\nKlart."), "");
+  assert.equal(routingText("Bara klartext."), "");
 });
 
 test("publicBotText drops assignment lines and handoff narration", () => {

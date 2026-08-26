@@ -20,8 +20,7 @@ import { SettingsPanel } from "./settings-panel";
 import { Sidebar } from "./sidebar";
 import { Thread, type ThreadItem } from "./thread";
 import { t, useLang } from "./i18n";
-import { buildDmRows, isInspectMessage, isRosterNotice } from "@shared/collapse";
-import { publicBotText } from "@shared/mentions";
+import { buildDmRows, buildLogRows, mergeBusLogs } from "@shared/collapse";
 import { sortBots } from "@shared/bots";
 import { LATEST_RELEASE_PAGE, type UpdateAvailable, type UpdateCheckResult } from "@shared/updates";
 
@@ -301,74 +300,40 @@ export function App() {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
   }, [selected?.messages, selectedGroup?.messages, team, thinkingIds, tools, liveByBot]);
 
-  const items = useMemo((): ThreadItem[] => {
-    const toItem = (
-      message: TeamMessage,
-      previous: TeamMessage[],
-    ): ThreadItem | undefined => {
-      if (message.source === "system" || isRosterNotice(message.content)) return undefined;
-      const inspect = isInspectMessage(message, previous);
-      const content =
-        message.from === "bot" && !inspect
-          ? publicBotText(message.content)
-          : message.content;
-      if (message.from !== "user" && !inspect && !content.trim()) return undefined;
-      return {
-        id: message.id,
-        author: message.from === "user" ? ("user" as const) : ("bot" as const),
-        name: message.name,
-        bot: message.botId ? bots.find((bot) => bot.id === message.botId) : undefined,
-        content,
-        createdAt: message.createdAt,
-        showName: message.from === "bot",
-        handoff: inspect,
-        toBotIds: message.toBotIds,
-      };
-    };
+  const bus = useMemo(
+    () => mergeBusLogs(team, ...groups.map((group) => group.messages)),
+    [groups, team],
+  );
 
-    const sharedThread = (messages: TeamMessage[], liveIds: string[]): ThreadItem[] => {
-      const rows: ThreadItem[] = [];
-      for (const [index, message] of messages.entries()) {
-        const row = toItem(message, messages.slice(0, index));
-        if (row) rows.push(row);
-      }
-      for (const botId of liveIds) {
+  const items = useMemo((): ThreadItem[] => {
+    const liveFor = (ids: string[]) =>
+      ids.flatMap((botId) => {
         const bot = bots.find((item) => item.id === botId);
-        if (!bot) continue;
+        if (!bot) return [];
         const last = bot.messages.at(-1);
-        const raw =
-          liveByBot[botId] ?? (last?.role === "assistant" ? last.content : "");
-        const inspect = isInspectMessage(
-          { from: "bot", content: raw, botId: bot.id },
-          messages,
-        );
-        const content = inspect ? raw : publicBotText(raw);
-        if (
-          messages.some(
-            (message) =>
-              message.id === last?.id ||
-              (content &&
-                (message.content === content ||
-                  publicBotText(message.content) === content)),
-          )
-        ) {
-          continue;
-        }
-        if (!inspect && !content.trim()) continue;
-        rows.push({
-          id: `live_${bot.id}`,
-          author: "bot",
-          name: bot.name,
-          bot,
-          content,
-          thinking: true,
-          createdAt: last?.createdAt,
-          showName: true,
-          handoff: inspect,
-        });
-      }
-      return rows;
-    };
+        return [
+          {
+            botId,
+            name: bot.name,
+            text: liveByBot[botId] ?? (last?.role === "assistant" ? last.content : ""),
+            source: last?.source,
+          },
+        ];
+      });
+
+    const sharedThread = (messages: TeamMessage[], liveIds: string[]): ThreadItem[] =>
+      buildLogRows(messages, liveFor(liveIds)).map((row) => ({
+        id: row.id,
+        author: row.author,
+        name: row.name,
+        bot: row.botId ? bots.find((bot) => bot.id === row.botId) : undefined,
+        content: row.content,
+        thinking: row.thinking,
+        createdAt: row.createdAt,
+        showName: row.author === "bot",
+        handoff: row.inspect,
+        toBotIds: row.toBotIds,
+      }));
 
     if (isTeam) return sharedThread(team, thinkingIds);
     if (selectedGroup) {
@@ -381,7 +346,7 @@ export function App() {
     return buildDmRows(selected.messages, {
       speakerId: selected.id,
       thinking: thinkingIds.includes(selected.id),
-      team,
+      team: bus,
     }).map((row) => {
       const peer = row.fromPeer ? bots.find((bot) => bot.id === row.fromBotId) : undefined;
       const speaker =
@@ -406,7 +371,7 @@ export function App() {
         showName: row.fromPeer || row.inspect,
       };
     });
-  }, [bots, isTeam, lang, liveByBot, selected, selectedGroup, team, thinkingIds]);
+  }, [bots, bus, isTeam, lang, liveByBot, selected, selectedGroup, team, thinkingIds]);
 
   async function createBot(form: FormData) {
     setError(null);
@@ -645,7 +610,7 @@ export function App() {
       <Sidebar
         bots={bots}
         groups={groups}
-        team={team}
+        team={bus}
         selectedId={selectedId}
         thinkingIds={thinkingIds}
         filter={filter}

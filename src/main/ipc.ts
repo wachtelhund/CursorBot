@@ -1,7 +1,11 @@
 import { Agent, Cursor } from "@cursor/sdk";
 import { app, ipcMain } from "electron";
-import { parseGroupCommands } from "../shared/groups";
 import { parseHandoffs } from "../shared/mentions";
+import {
+  isHarnessOnlyUserText,
+  shouldPostUserMessage,
+  shouldWakeTargets,
+} from "../shared/route";
 import { parseSendPayload, resolveSendTargets } from "../shared/send";
 import {
   deleteSecret,
@@ -251,20 +255,22 @@ export function registerIpc(): void {
         fallbackId: fallback,
       });
 
-      const onlyGroupCommand =
-        !parsed.botId &&
-        mentioned.length === 0 &&
-        parseGroupCommands(parsed.text).length > 0;
-
-      if (!parsed.botId) {
+      const harnessOnly = isHarnessOnlyUserText(parsed.text);
+      if (
+        shouldPostUserMessage({
+          harnessOnly,
+          botId: parsed.botId,
+          groupId: group?.id,
+        })
+      ) {
         await postLog(event.sender, group?.id, {
           from: "user",
           name: "Du",
           content: parsed.text,
-          toBotIds: onlyGroupCommand ? undefined : targetIds,
+          toBotIds: targetIds,
         });
       }
-      if (!onlyGroupCommand) {
+      if (shouldWakeTargets({ harnessOnly, botId: parsed.botId })) {
         wakeMany(
           event.sender,
           targetIds,
@@ -273,8 +279,9 @@ export function registerIpc(): void {
           parsed.botId ? undefined : group?.id,
           Boolean(parsed.botId),
         );
+        return { targetIds };
       }
-      return { targetIds: onlyGroupCommand ? [] : targetIds };
+      return { targetIds: [] };
     },
   );
 }

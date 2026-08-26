@@ -1,15 +1,16 @@
 import { AgentBusyError, AgentNotFoundError, CursorAgentError } from "@cursor/sdk";
 import type { WebContents } from "electron";
 import { parseGroupCommands } from "../shared/groups";
-import { parseHandoffs, publicBotText } from "../shared/mentions";
+import { publicBotText } from "../shared/mentions";
+import {
+  deliveryPlan,
+  incomingHopContent,
+  outgoingHandoffs,
+  persistPlan,
+} from "../shared/route";
 import { logGroupId, resolveLogThread } from "../shared/send";
 import { parseSpawns, shouldSkipSpawn } from "../shared/spawn";
-import {
-  assignmentText,
-  composeWakePrompt,
-  shouldDeliverHandoffResult,
-  type WakeSource,
-} from "../shared/wake";
+import { assignmentText, composeWakePrompt, type WakeSource } from "../shared/wake";
 import type { Bot, StreamEvent, TeamMessage } from "../shared/types";
 import { isUnusableAgent, openBotAgent, releaseBotAgent } from "./cursor";
 import { id } from "./ids";
@@ -30,8 +31,6 @@ import {
   updateBot,
   updateMessage,
 } from "./store";
-
-const MAX_HOP = 3;
 
 export type Wake = {
   sender: WebContents;
@@ -379,17 +378,14 @@ async function runTurn(job: Wake): Promise<void> {
     source === "user" ? null : { id: fromBotId, name: fromName ?? "Bot" },
   );
 
-  const persistDm = Boolean(job.dm) && source === "user";
-  const persistResult = Boolean(job.dm) && source === "result";
-  const persistHop = source === "handoff";
-  const persist = persistDm || persistHop || persistResult;
+  const persist = persistPlan({ source, dm: job.dm });
   const isFirst = !bot.agentId && bot.messages.filter((message) => message.role === "user").length === 0;
 
   let assistantId: string | undefined;
-  if (persistHop) {
+  if (persist.incomingHop) {
     const incoming = await appendMessage(botId, {
       role: "assistant",
-      content: `@${bot.name}: ${text}`,
+      content: incomingHopContent(bot.name, text),
       source: "handoff",
       fromBotId,
       fromName,
@@ -398,8 +394,8 @@ async function runTurn(job: Wake): Promise<void> {
     if (incoming) emit(sender, { type: "append", botId, message: incoming });
   }
 
-  if (persist) {
-    if (persistDm) {
+  if (persist.assistant) {
+    if (persist.userMessage) {
       const userMessage = await appendMessage(botId, {
         role: "user",
         content: text,
@@ -415,10 +411,10 @@ async function runTurn(job: Wake): Promise<void> {
       id: assistantId,
       role: "assistant",
       content: "",
-      source: persistHop ? "handoff" : "bot",
+      source: persist.assistantSource,
       fromBotId: botId,
       fromName: bot.name,
-      toBotIds: persistHop && fromBotId ? [fromBotId] : undefined,
+      toBotIds: persist.incomingHop && fromBotId ? [fromBotId] : undefined,
     });
     if (assistantMessage) emit(sender, { type: "append", botId, message: assistantMessage });
   }
@@ -499,8 +495,8 @@ async function runTurn(job: Wake): Promise<void> {
     const finalText = result.result || assistantText;
     const publicText = publicBotText(finalText);
     if (assistantId) {
-      // Keep the full reply in the DM store. The UI strips @Name: for
-      // klartext but still needs the hop so Messaged can render in this chat.
+      // Keep the full reply in the DM store. Hops stay source:handoff (inspect).
+      // The user-thread copy is a separate public write below.
       await updateMessage(botId, assistantId, {
         content: finalText,
         runId: result.id,
@@ -513,14 +509,6 @@ async function runTurn(job: Wake): Promise<void> {
       throw new Error(message);
     }
 
-    emit(sender, {
-      type: "done",
-      botId,
-      result: persist ? finalText : publicText,
-      runId: result.id,
-      status: result.status,
-    });
-
     await applySpawns(sender, latest, finalText);
     const targeted = await applyGroupCommands(sender, latest, finalText);
     const userThread = resolveLogThread({
@@ -528,36 +516,40 @@ async function runTurn(job: Wake): Promise<void> {
       groupId: job.groupId,
       targetGroupId: source === "user" ? targeted : undefined,
     });
-    const handoffThread = resolveLogThread({
+    const busThread = resolveLogThread({
+      dm: job.dm,
       groupId: job.groupId,
       targetGroupId: targeted,
     });
-    const threadId = logGroupId(handoffThread);
+    const threadId = logGroupId(busThread);
     const originBotId = job.originBotId ?? fromBotId;
-    const deliverResult = shouldDeliverHandoffResult({
+    const plan = deliveryPlan({
       source,
       publicText,
-      fromBotId: originBotId,
+      originBotId,
+      botId,
+      hop,
+      userThread,
+      busThread,
     });
 
-    if (deliverResult) {
+    if (plan.postPublic) {
       await postOriginResult(sender, userThread, originBotId, {
-        botId,
-        name: latest.name,
-        content: publicText,
-      });
-    } else if (publicText && source !== "handoff" && userThread.kind !== "dm") {
-      await postLog(sender, logGroupId(userThread), {
-        from: "bot",
         botId,
         name: latest.name,
         content: publicText,
       });
     }
 
-    // Return hop: originator tells the user. Then stop — no ping-pong.
-    if (source === "result") return;
-    if (deliverResult && originBotId && originBotId !== botId) {
+    emit(sender, {
+      type: "done",
+      botId,
+      result: persist.assistant ? finalText : publicText,
+      runId: result.id,
+      status: result.status,
+    });
+
+    if (plan.relay && originBotId) {
       wake({
         sender,
         botId: originBotId,
@@ -573,14 +565,14 @@ async function runTurn(job: Wake): Promise<void> {
       return;
     }
 
-    if (hop >= MAX_HOP) return;
+    if (!plan.continueHandoffs) return;
 
     const roster = threadId ? await groupRoster(threadId) : await rosterOf();
-    const handoffs = parseHandoffs(finalText, roster).filter((item) => {
-      if (item.botId === botId) return false;
-      if (item.botId === fromBotId) return false;
-      return true;
-    });
+    const handoffs = outgoingHandoffs(finalText, roster, [
+      botId,
+      fromBotId,
+      originBotId,
+    ]);
 
     for (const handoff of handoffs) {
       emit(sender, {
@@ -593,15 +585,17 @@ async function runTurn(job: Wake): Promise<void> {
       const teamLine = handoff.body.trim()
         ? `@${handoff.name}: ${handoff.body.trim()}`
         : `@${handoff.name}`;
-      await postLog(sender, threadId, {
-        from: "bot",
-        botId,
-        name: latest.name,
-        content: teamLine,
-        toBotIds: [handoff.botId],
-        source: "handoff",
-        fromBotId: botId,
-      });
+      if (plan.logAssignments) {
+        await postLog(sender, threadId, {
+          from: "bot",
+          botId,
+          name: latest.name,
+          content: teamLine,
+          toBotIds: [handoff.botId],
+          source: "handoff",
+          fromBotId: botId,
+        });
+      }
       wake({
         sender,
         botId: handoff.botId,
