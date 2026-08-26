@@ -50,6 +50,10 @@ jobs:
           unset ELECTRON_RUN_AS_NODE
           npm test
 
+      # Unsigned on purpose (no Apple Developer cert). On macOS, Gatekeeper then
+      # shows “Cursor Bots is damaged and can’t be opened” — quarantine, not a
+      # corrupt binary. Users: Cancel (do not Trash), then
+      # xattr -cr "/Applications/Cursor Bots.app"
       - name: Build installers
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
