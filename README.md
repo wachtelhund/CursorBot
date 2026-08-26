@@ -2,6 +2,14 @@
 
 Skrivbordsapp med namngivna teammates. Varje bot är en [Cursor Cloud Agent](https://cursor.com/docs/cloud-agent). Usage går mot ditt **Cursor-konto**.
 
+![Cursor Bots](docs/screenshots/app-main.png)
+
+Sidofält, teamchatt och pixel-art-avatarer:
+
+![Teamchatt](docs/screenshots/team-chat.png)
+
+![Sidolista](docs/screenshots/sidebar-roster.png)
+
 ## Kör lokalt
 
 ```bash
