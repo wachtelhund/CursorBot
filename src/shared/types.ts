@@ -15,7 +15,8 @@ export const BUDDY_KINDS = [
 
 export type BuddyKind = (typeof BUDDY_KINDS)[number];
 
-export type MessageSource = "user" | "bot" | "system" | "handoff";
+/** `notice` is the harness telling the thread that a wake did not happen. */
+export type MessageSource = "user" | "bot" | "system" | "handoff" | "notice";
 
 export type ChatMessage = {
   id: string;
@@ -27,6 +28,8 @@ export type ChatMessage = {
   fromBotId?: string;
   fromName?: string;
   toBotIds?: string[];
+  /** The delegating turn this message belongs to. */
+  taskId?: string;
 };
 
 export type TeamMessage = {
@@ -36,8 +39,9 @@ export type TeamMessage = {
   name: string;
   content: string;
   toBotIds?: string[];
-  source?: "handoff" | "system";
+  source?: "handoff" | "system" | "notice";
   fromBotId?: string;
+  taskId?: string;
   createdAt: string;
 };
 

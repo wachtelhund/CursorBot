@@ -838,3 +838,45 @@ test("buildDmRows hides a leftover empty hop assistant after the run is done", (
   );
 });
 
+
+test("a notice about a wake that did not happen is shown, not hidden", () => {
+  const rows = buildLogRows([
+    {
+      id: "m1",
+      from: "bot",
+      name: "Chief",
+      content: "@Analyst: pull the numbers",
+      source: "handoff",
+      toBotIds: [],
+    },
+    {
+      id: "m2",
+      from: "bot",
+      name: "",
+      content: "No teammate named Analyst — that line woke no one.",
+      source: "notice",
+    },
+  ]);
+  const notice = rows.find((row) => row.id === "m2");
+  assert.equal(notice?.notice, true);
+  assert.equal(notice?.inspect, false);
+  assert.equal(notice?.content, "No teammate named Analyst — that line woke no one.");
+});
+
+test("a notice on a DM is a visible row too", () => {
+  const rows = buildDmRows(
+    [
+      {
+        id: "m1",
+        role: "assistant",
+        content: "Hop limit 3 reached — Bo was not woken.",
+        createdAt: "2026-08-26T10:00:00.000Z",
+        source: "notice",
+      },
+    ],
+    { speakerId: "ada", thinking: false, team: [] },
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].notice, true);
+  assert.equal(rows[0].inspect, false);
+});

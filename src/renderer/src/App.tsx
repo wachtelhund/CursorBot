@@ -349,8 +349,9 @@ export function App() {
         content: row.content,
         thinking: row.thinking,
         createdAt: row.createdAt,
-        showName: row.author === "bot",
+        showName: row.author === "bot" && !row.notice,
         handoff: row.inspect,
+        notice: row.notice,
         toBotIds: row.toBotIds,
       }));
 
@@ -385,9 +386,10 @@ export function App() {
         thinking: row.thinking,
         fromPeer: row.fromPeer,
         handoff: row.inspect,
+        notice: row.notice,
         toBotIds: row.toBotIds,
         createdAt: row.createdAt,
-        showName: row.fromPeer || row.inspect,
+        showName: (row.fromPeer || row.inspect) && !row.notice,
       };
     });
   }, [bots, bus, isTeam, lang, liveByBot, selected, selectedGroup, team, thinkingIds]);

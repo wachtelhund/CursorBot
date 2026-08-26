@@ -1,17 +1,41 @@
 import { AgentBusyError, AgentNotFoundError, CursorAgentError, type Run } from "@cursor/sdk";
 import type { WebContents } from "electron";
 import { publish } from "./bus";
+import { threadDigest, type DigestMessage } from "../shared/digest";
 import { parseGroupCommands } from "../shared/groups";
-import { publicBotText } from "../shared/mentions";
-import { sendDelivery, type SendMode } from "../shared/send-mode";
+import { publicBotText, unmatchedMentions } from "../shared/mentions";
+import {
+  correctsActive,
+  enqueue as enqueueWake,
+  takeNext,
+  threadKeyOf,
+  type QueueEntry,
+  type QueueKey,
+} from "../shared/queue";
+import { resolveWakeMode, sendDelivery, type SendMode } from "../shared/send-mode";
 import {
   deliveryPlan,
+  emptyWakeNotice,
+  hopLimitNotice,
   incomingHopContent,
   outgoingHandoffs,
+  offThreadNotice,
   persistPlan,
+  unknownNameNotice,
+  MAX_HOP,
 } from "../shared/route";
 import { logGroupId, resolveLogThread } from "../shared/send";
 import { parseSpawns, shouldSkipSpawn } from "../shared/spawn";
+import {
+  addBranches,
+  closeTask,
+  completeBranch,
+  dropBranch,
+  openTask,
+  relayText,
+  shouldRelay,
+  type TaskTable,
+} from "../shared/tasks";
 import { assignmentText, composeWakePrompt, type WakeSource } from "../shared/wake";
 import type { Bot, StreamEvent, TeamMessage } from "../shared/types";
 import { isUnusableAgent, openBotAgent, releaseBotAgent } from "./cursor";
@@ -30,6 +54,7 @@ import {
   listBots,
   listGroups,
   listRemovedNames,
+  listTeam,
   updateBot,
   updateMessage,
 } from "./store";
@@ -46,13 +71,16 @@ export type Wake = {
   dm?: boolean;
   originBotId?: string;
   sendMode?: SendMode;
+  /** The delegating turn this wake belongs to, for correlation and joins. */
+  taskId?: string;
 };
 
-const inflight = new Set<string>();
-const waiting = new Map<string, Array<{ job: () => Promise<void>; steer: boolean }>>();
+const waiting = new Map<string, QueueEntry<Wake>[]>();
+const active = new Map<string, { key: QueueKey; text: string }>();
 const busy = new Set<string>();
 const activeRuns = new Map<string, Run>();
 const turnGen = new Map<string, number>();
+const tasks: TaskTable = new Map();
 
 function emit(_sender: WebContents | undefined, event: StreamEvent) {
   publish(event);
@@ -62,19 +90,6 @@ function queuedCount(botId: string): number {
   return (waiting.get(botId)?.length ?? 0) + (busy.has(botId) ? 1 : 0);
 }
 
-function enqueue(botId: string, job: () => Promise<void>, steer = false): void {
-  const list = waiting.get(botId) ?? [];
-  if (steer) {
-    const index = list.findIndex((item) => !item.steer);
-    if (index === -1) list.push({ job, steer: true });
-    else list.splice(index, 0, { job, steer: true });
-  } else {
-    list.push({ job, steer: false });
-  }
-  waiting.set(botId, list);
-  void pump(botId);
-}
-
 async function pump(botId: string): Promise<void> {
   if (busy.has(botId)) return;
   const list = waiting.get(botId);
@@ -82,13 +97,18 @@ async function pump(botId: string): Promise<void> {
     waiting.delete(botId);
     return;
   }
-  const next = list.shift()!;
-  if (list.length === 0) waiting.delete(botId);
+  const { entry, list: rest } = takeNext(list);
+  if (rest.length === 0) waiting.delete(botId);
+  else waiting.set(botId, rest);
+  if (!entry) return;
+
   busy.add(botId);
+  active.set(botId, { key: entry.key, text: entry.text });
   try {
-    await next.job();
+    await runTurn({ ...entry.payload, text: entry.text, sendMode: entry.mode });
   } finally {
     busy.delete(botId);
+    active.delete(botId);
     await pump(botId);
   }
 }
@@ -113,8 +133,14 @@ async function cancelActiveRun(botId: string): Promise<void> {
   }
 }
 
-function coalesceKey(wake: Wake): string {
-  return `${wake.botId}:${wake.groupId ?? ""}:${wake.source}:${wake.text.trim().slice(0, 240)}`;
+function queueKeyOf(wake: Wake): QueueKey {
+  return {
+    botId: wake.botId,
+    threadKey: threadKeyOf(wake),
+    source: wake.source,
+    fromBotId: wake.fromBotId,
+    taskId: wake.taskId,
+  };
 }
 
 async function rosterOf() {
@@ -155,6 +181,33 @@ export async function postLog(
   await postTeam(sender, message);
 }
 
+/**
+ * A wake that does not happen is invisible from the thread. Say so where the
+ * work was expected, instead of leaving the human to guess.
+ */
+export async function postNotice(
+  sender: WebContents | undefined,
+  where: { dm?: boolean; groupId?: string; botId: string },
+  content: string,
+): Promise<void> {
+  if (!content.trim()) return;
+  if (where.dm) {
+    const saved = await appendMessage(where.botId, {
+      role: "assistant",
+      content,
+      source: "notice",
+    });
+    if (saved) emit(sender, { type: "append", botId: where.botId, message: saved });
+    return;
+  }
+  await postLog(sender, where.groupId, {
+    from: "bot",
+    name: "",
+    content,
+    source: "notice",
+  });
+}
+
 export function latestActiveId(bots: { id: string; updatedAt: string }[]): string | undefined {
   return [...bots].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]?.id;
 }
@@ -171,37 +224,66 @@ function emitQueued(sender: WebContents | undefined, botId: string): void {
 
 export function wake(input: Wake): void {
   const text = input.text.trim();
-  if (!text) return;
-  const key = coalesceKey({ ...input, text });
-  if (inflight.has(key)) return;
-  inflight.add(key);
-  const steer =
-    input.source === "user" && sendDelivery(input.sendMode ?? "queue").cancelActive;
-  if (steer) {
-    bumpTurn(input.botId);
-    void cancelActiveRun(input.botId);
-    if (queuedCount(input.botId) > 0) {
-      emit(input.sender, { type: "thinking", botId: input.botId, thinking: true });
+  const botId = input.botId;
+  if (!text) {
+    void (async () => {
+      const target = await getBot(botId);
+      await postNotice(input.sender, input, emptyWakeNotice(target?.name ?? "the bot"));
+    })().catch(() => {
+      // The bus is best-effort here; the wake was already a no-op.
+    });
+    return;
+  }
+
+  const key = queueKeyOf(input);
+  const running = active.get(botId);
+  if (running && running.text === text && sameKey(running.key, key)) return;
+
+  /** An interrupt is explicit (`⌘Enter`, `@Name!:`) or a correction to the run in progress. */
+  const mode = resolveWakeMode({
+    requested: input.sendMode,
+    corrects: correctsActive(running?.key, key),
+  });
+  const pending = waiting.get(botId) ?? [];
+  const wasWaiting = pending.length > 0 || busy.has(botId);
+  const { list, action, replaced } = enqueueWake(pending, {
+    key,
+    mode,
+    text,
+    payload: { ...input, text, sendMode: mode },
+  });
+  if (action === "duplicate") return;
+  // The folded-in wake never runs under its own task: release its branch.
+  if (replaced?.key.taskId && replaced.key.taskId !== key.taskId) {
+    dropBranch(tasks, replaced.key.taskId);
+  }
+  waiting.set(botId, list);
+
+  if (mode === "steer") {
+    bumpTurn(botId);
+    void cancelActiveRun(botId);
+    if (wasWaiting) {
+      emit(input.sender, { type: "thinking", botId, thinking: true });
       emit(input.sender, {
         type: "status",
-        botId: input.botId,
+        botId,
         status: "starting",
         message: "Steering…",
       });
     }
-  } else if (queuedCount(input.botId) > 0) {
-    emitQueued(input.sender, input.botId);
+  } else if (wasWaiting && action === "queued") {
+    emitQueued(input.sender, botId);
   }
-  enqueue(
-    input.botId,
-    async () => {
-      try {
-        await runTurn({ ...input, text });
-      } finally {
-        inflight.delete(key);
-      }
-    },
-    steer,
+
+  void pump(botId);
+}
+
+function sameKey(a: QueueKey, b: QueueKey): boolean {
+  return (
+    a.botId === b.botId &&
+    a.threadKey === b.threadKey &&
+    a.source === b.source &&
+    (a.taskId ?? "") === (b.taskId ?? "")
   );
 }
 
@@ -213,6 +295,7 @@ export function wakeMany(
   groupId?: string,
   dm?: boolean,
   sendMode: SendMode = "queue",
+  taskId?: string,
 ): void {
   for (const botId of botIds) {
     wake({
@@ -224,9 +307,20 @@ export function wakeMany(
       groupId,
       dm,
       originBotId: botId,
-      sendMode: source === "user" ? sendMode : "queue",
+      sendMode,
+      taskId,
     });
   }
+}
+
+/** Opened by the sender so the human turn is one task with one branch per bot. */
+export function openUserTask(input: {
+  taskId: string;
+  request: string;
+  branches: number;
+}): void {
+  openTask(tasks, { taskId: input.taskId, request: input.request });
+  addBranches(tasks, input.taskId, input.branches);
 }
 
 export async function applySpawns(
@@ -429,6 +523,47 @@ async function groupsForPrompt() {
   }));
 }
 
+/** Bots cannot read the app's threads, so every wake carries a clipped view. */
+async function digestFor(
+  job: Wake,
+  bot: Bot,
+  roster: { id: string; name: string }[],
+): Promise<string> {
+  const messages: DigestMessage[] = [];
+  if (job.dm) {
+    for (const message of bot.messages) {
+      messages.push({
+        name: message.role === "user" ? "You" : (message.fromName ?? bot.name),
+        content: message.content,
+        from: message.role === "user" ? "user" : "bot",
+        source: message.source,
+        toBotIds: message.toBotIds,
+      });
+    }
+  } else {
+    const log = job.groupId
+      ? ((await getGroup(job.groupId))?.messages ?? [])
+      : await listTeam();
+    for (const message of log) {
+      messages.push({
+        name: message.name,
+        content: message.content,
+        from: message.from,
+        source: message.source,
+        toBotIds: message.toBotIds,
+      });
+    }
+  }
+  return threadDigest(messages, { roster, exclude: job.text });
+}
+
+function busyNamesFor(botId: string, roster: { id: string; name: string }[]): string[] {
+  return [...busy]
+    .filter((other) => other !== botId)
+    .map((other) => roster.find((mate) => mate.id === other)?.name)
+    .filter((name): name is string => Boolean(name));
+}
+
 async function runTurn(job: Wake): Promise<void> {
   const { sender, botId, text, hop, fromBotId, fromName, source } = job;
   const gen = turnGen.get(botId) ?? 0;
@@ -497,6 +632,7 @@ async function runTurn(job: Wake): Promise<void> {
     let latest = (await getBot(botId)) ?? bot;
     const teammates = await rosterOf();
     const groups = await groupsForPrompt();
+    const digest = await digestFor(job, bot, teammates);
     let agent = await openBotAgent(latest);
     if (agent.agentId !== latest.agentId) {
       await updateBot(botId, { agentId: agent.agentId });
@@ -515,9 +651,12 @@ async function runTurn(job: Wake): Promise<void> {
       fromName,
       hop,
       text,
+      digest,
+      busyNames: busyNamesFor(botId, teammates),
+      taskRequest: job.taskId ? tasks.get(job.taskId)?.request : undefined,
     });
     const cloud = Object.keys(envVars).length > 0 ? { cloud: { envVars } } : undefined;
-    const steer = source === "user" && sendDelivery(job.sendMode ?? "queue").cancelActive;
+    const steer = sendDelivery(job.sendMode ?? "queue").cancelActive;
     if (isSuperseded(botId, gen)) return;
     try {
       run = await agent.send(prompt, cloud);
@@ -582,6 +721,7 @@ async function runTurn(job: Wake): Promise<void> {
     }
 
     if (result.status === "cancelled") {
+      if (job.taskId) dropBranch(tasks, job.taskId);
       emit(sender, {
         type: "done",
         botId,
@@ -612,6 +752,15 @@ async function runTurn(job: Wake): Promise<void> {
     });
     const threadId = logGroupId(busThread);
     const originBotId = job.originBotId ?? fromBotId;
+    const where = { dm: job.dm, groupId: threadId, botId };
+
+    /** Settle this bot's branch of the turn that woke it, so a fan-out can join. */
+    const settled = job.taskId
+      ? completeBranch(tasks, job.taskId, { name: latest.name, text: publicText })
+      : { task: undefined, done: true };
+    // A task pruned or already closed behaves like a single branch: deliver now.
+    const parent = { task: settled.task, done: settled.task ? settled.done : true };
+
     const plan = deliveryPlan({
       source,
       publicText,
@@ -620,6 +769,8 @@ async function runTurn(job: Wake): Promise<void> {
       hop,
       userThread,
       busThread,
+      branches: parent.task?.branches ?? 1,
+      joinDone: parent.done,
     });
 
     if (plan.postPublic) {
@@ -627,6 +778,17 @@ async function runTurn(job: Wake): Promise<void> {
         botId,
         name: latest.name,
         content: publicText,
+      });
+    } else if (plan.postHop) {
+      await postLog(sender, threadId, {
+        from: "bot",
+        botId,
+        name: latest.name,
+        content: publicText,
+        toBotIds: originBotId ? [originBotId] : undefined,
+        source: "handoff",
+        fromBotId: botId,
+        taskId: job.taskId,
       });
     }
 
@@ -638,14 +800,17 @@ async function runTurn(job: Wake): Promise<void> {
       status: result.status,
     });
 
-    if (plan.relay && originBotId) {
+    if (plan.relay && originBotId && (!parent.task || shouldRelay(parent.task))) {
+      const joined = parent.task ? relayText(parent.task) || publicText : publicText;
+      const several = (parent.task?.results.length ?? 1) > 1;
+      if (parent.task) closeTask(tasks, parent.task.taskId);
       wake({
         sender,
         botId: originBotId,
-        text: publicText,
+        text: joined,
         source: "result",
         fromBotId: botId,
-        fromName: latest.name,
+        fromName: several ? undefined : latest.name,
         hop: hop + 1,
         groupId: job.groupId,
         dm: job.dm,
@@ -653,26 +818,87 @@ async function runTurn(job: Wake): Promise<void> {
       });
       return;
     }
+    if (parent.task && parent.done) closeTask(tasks, parent.task.taskId);
 
-    if (!plan.continueHandoffs) return;
+    if (source === "result" || source === "question") return;
 
     const roster = threadId ? await groupRoster(threadId) : await rosterOf();
-    const handoffs = outgoingHandoffs(finalText, roster, [
-      botId,
-      fromBotId,
-      originBotId,
-    ]);
+    const handoffs = outgoingHandoffs(finalText, roster, {
+      selfId: botId,
+      skipIds: [fromBotId, originBotId],
+    });
+
+    const everyone = threadId ? await rosterOf() : roster;
+    const unknown = unmatchedMentions(finalText, everyone);
+    if (unknown.length > 0) {
+      await postNotice(sender, where, unknownNameNotice(unknown));
+    }
+    if (threadId) {
+      const offThread = unmatchedMentions(finalText, roster).filter(
+        (name) => !unknown.includes(name),
+      );
+      if (offThread.length > 0) {
+        const group = await getGroup(threadId);
+        await postNotice(sender, where, offThreadNotice(offThread, group?.name));
+      }
+    }
+    if (handoffs.length === 0) return;
+    if (!plan.continueHandoffs) {
+      if (hop >= MAX_HOP) {
+        await postNotice(
+          sender,
+          where,
+          hopLimitNotice(handoffs.map((handoff) => handoff.name)),
+        );
+      }
+      return;
+    }
+
+    const asks = handoffs.filter(
+      (handoff) => handoff.kind === "question" && handoff.body.trim(),
+    );
+    const jobs = handoffs.filter((handoff) => !asks.includes(handoff));
+
+    let assignTaskId: string | undefined;
+    if (jobs.length > 0) {
+      assignTaskId = id("task");
+      openTask(tasks, {
+        taskId: assignTaskId,
+        kind: "assign",
+        request: text,
+        originBotId: botId,
+        originName: latest.name,
+      });
+      addBranches(tasks, assignTaskId, jobs.length);
+    }
 
     for (const handoff of handoffs) {
+      const asking = asks.includes(handoff);
+      let taskId = assignTaskId;
+      if (asking) {
+        taskId = id("task");
+        openTask(tasks, {
+          taskId,
+          kind: "question",
+          request: handoff.body,
+          originBotId: botId,
+          originName: latest.name,
+        });
+        addBranches(tasks, taskId, 1);
+      }
+
       emit(sender, {
         type: "relay",
         fromName: latest.name,
         toBotId: handoff.botId,
         toName: handoff.name,
       });
-      const assigned = assignmentText(latest.name, handoff.body, finalText);
+      const assigned = asking
+        ? handoff.body
+        : assignmentText(latest.name, handoff.body, finalText);
+      const marker = asking ? "?" : "";
       const teamLine = handoff.body.trim()
-        ? `@${handoff.name}: ${handoff.body.trim()}`
+        ? `@${handoff.name}${marker}: ${handoff.body.trim()}`
         : `@${handoff.name}`;
       if (plan.logAssignments) {
         await postLog(sender, threadId, {
@@ -683,22 +909,26 @@ async function runTurn(job: Wake): Promise<void> {
           toBotIds: [handoff.botId],
           source: "handoff",
           fromBotId: botId,
+          taskId,
         });
       }
       wake({
         sender,
         botId: handoff.botId,
         text: assigned,
-        source: "handoff",
+        source: asking ? "question" : "handoff",
         fromBotId: botId,
         fromName: latest.name,
         hop: hop + 1,
         groupId: threadId,
         dm: job.dm,
-        originBotId: job.originBotId ?? (source === "user" ? botId : fromBotId),
+        originBotId: botId,
+        sendMode: handoff.mode,
+        taskId,
       });
     }
   } catch (error) {
+    if (job.taskId) dropBranch(tasks, job.taskId);
     if (error instanceof AgentNotFoundError) {
       await releaseBotAgent(botId);
     }

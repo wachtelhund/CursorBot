@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_SEND_MODE, parseSendMode, sendDelivery } from "./send-mode.ts";
+import {
+  DEFAULT_SEND_MODE,
+  parseSendMode,
+  resolveWakeMode,
+  sendDelivery,
+} from "./send-mode.ts";
 
 test("parseSendMode defaults unknown values to queue", () => {
   assert.equal(parseSendMode(undefined), "queue");
@@ -33,4 +38,14 @@ test("sendDelivery maps queue to wait and steer to cancel", () => {
     waitForActive: false,
     cancelActive: true,
   });
+});
+
+test("resolveWakeMode defaults to queue and honours an explicit steer", () => {
+  assert.equal(resolveWakeMode({}), "queue");
+  assert.equal(resolveWakeMode({ requested: "queue" }), "queue");
+  assert.equal(resolveWakeMode({ requested: "steer" }), "steer");
+});
+
+test("a correction to the running task steers even when it asked to queue", () => {
+  assert.equal(resolveWakeMode({ requested: "queue", corrects: true }), "steer");
 });

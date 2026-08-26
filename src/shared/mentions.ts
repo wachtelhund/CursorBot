@@ -1,4 +1,6 @@
+import { isRoutableLine, isCodeSpanLine, scanFences } from "./fences.ts";
 import { isGroupCommandLine } from "./groups.ts";
+import type { SendMode } from "./send-mode.ts";
 import { parseSpawns } from "./spawn.ts";
 
 export type RosterEntry = {
@@ -6,10 +8,15 @@ export type RosterEntry = {
   name: string;
 };
 
+/** `@Name:` assigns, `@Name!:` interrupts, `@Name?:` asks and expects an answer back. */
+export type HandoffKind = "assign" | "question";
+
 export type Handoff = {
   botId: string;
   name: string;
   body: string;
+  kind: HandoffKind;
+  mode: SendMode;
 };
 
 export type RosterMention = {
@@ -21,33 +28,52 @@ const ALL = new Set(["alla", "all", "team"]);
 const SPAWN = new Set(["ny", "new", "grupp"]);
 const ASSIGNMENT_RE = /^(?:[-*]\s+)?@([^\s:：]+)[:：]?\s*(.*)$/;
 const ASSIGNMENT_LINE_RE = /^(?:[-*]\s+)?@(.*)$/;
+const DIRECTED_RE = /^(?:[-*]\s+)?@([^\s:：]+)\s*[:：]/;
+const MARKER_RE = /^([?!])?\s*[:：]?\s*/;
+
+/** `Ada?` / `Ada!` — the marker is delivery, not part of the name. */
+function splitMarker(token: string): { key: string; marker?: "?" | "!" } {
+  const last = token.at(-1);
+  if (last === "?" || last === "!") {
+    return { key: token.slice(0, -1).toLowerCase(), marker: last };
+  }
+  return { key: token.toLowerCase() };
+}
+
+function deliveryOf(marker?: "?" | "!"): { kind: HandoffKind; mode: SendMode } {
+  if (marker === "?") return { kind: "question", mode: "queue" };
+  if (marker === "!") return { kind: "assign", mode: "steer" };
+  return { kind: "assign", mode: "queue" };
+}
 
 export function isRoutingLine(line: string): boolean {
   const trimmed = line.trim();
   if (!trimmed) return false;
+  if (isCodeSpanLine(line)) return false;
   if (isGroupCommandLine(trimmed)) return true;
   return ASSIGNMENT_RE.test(trimmed);
 }
 
 export function stripRoutingLines(text: string): string {
-  return text
-    .split(/\r?\n/)
-    .filter((line) => !isRoutingLine(line))
+  return scanFences(text)
+    .filter((line) => !isRoutableLine(line) || !isRoutingLine(line.text))
+    .map((line) => line.text)
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
 export function routingText(text: string): string {
-  return text
-    .split(/\r?\n/)
+  return scanFences(text)
     .filter((line) => {
-      const trimmed = line.trim();
+      if (!isRoutableLine(line)) return false;
+      const trimmed = line.text.trim();
       if (!isRoutingLine(trimmed)) return false;
       if (isGroupCommandLine(trimmed)) return false;
       if (parseSpawns(trimmed).length > 0) return false;
       return true;
     })
+    .map((line) => line.text)
     .join("\n")
     .trim();
 }
@@ -72,9 +98,9 @@ export function publicBotText(text: string): string {
 }
 
 export function isAssignmentPing(content: string): boolean {
-  const lines = content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
+  const lines = scanFences(content)
+    .filter(isRoutableLine)
+    .map((line) => line.text.trim())
     .filter(Boolean);
   if (lines.length === 0) return false;
 
@@ -83,7 +109,7 @@ export function isAssignmentPing(content: string): boolean {
     if (isGroupCommandLine(line)) continue;
     const match = ASSIGNMENT_RE.exec(line);
     if (!match) return false;
-    const key = match[1]?.toLowerCase() ?? "";
+    const { key } = splitMarker(match[1] ?? "");
     if (SPAWN.has(key)) return false;
     sawAssignment = true;
   }
@@ -96,7 +122,14 @@ function sortedRoster(roster: RosterEntry[]): RosterEntry[] {
 
 function mentionBoundary(text: string, index: number): boolean {
   const next = text[index];
-  return next === undefined || next === ":" || next === "：" || /\s/.test(next);
+  return (
+    next === undefined ||
+    next === ":" ||
+    next === "：" ||
+    next === "?" ||
+    next === "!" ||
+    /\s/.test(next)
+  );
 }
 
 function firstToken(text: string): string {
@@ -118,10 +151,9 @@ export function matchRosterMention(
     return { bot, consumed: bot.name.length };
   }
 
-  const token = firstToken(afterAt);
+  const { key: token } = splitMarker(firstToken(afterAt));
   if (!token) return null;
-  const needle = token.toLowerCase();
-  const hits = roster.filter((bot) => bot.name.toLowerCase().startsWith(needle));
+  const hits = roster.filter((bot) => bot.name.toLowerCase().startsWith(token));
   if (hits.length !== 1) return null;
 
   const bot = hits[0];
@@ -140,40 +172,84 @@ export function matchRosterMention(
   return { bot, consumed };
 }
 
+function splitBody(rest: string): { body: string; marker?: "?" | "!" } {
+  const match = MARKER_RE.exec(rest);
+  const marker = match?.[1] as "?" | "!" | undefined;
+  return { body: rest.slice(match?.[0].length ?? 0).trim(), marker };
+}
+
 export function parseHandoffs(text: string, roster: RosterEntry[]): Handoff[] {
   if (!text.trim() || roster.length === 0) return [];
 
   const found: Handoff[] = [];
   const seen = new Set<string>();
 
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
+  for (const raw of scanFences(text)) {
+    if (!isRoutableLine(raw)) continue;
+    const line = raw.text.trim();
     if (isGroupCommandLine(line)) continue;
     const match = ASSIGNMENT_LINE_RE.exec(line);
     if (!match) continue;
 
     const afterAt = match[1] ?? "";
-    const key = firstToken(afterAt).toLowerCase();
+    const { key, marker: tokenMarker } = splitMarker(firstToken(afterAt));
     if (!key || SPAWN.has(key)) continue;
 
     if (ALL.has(key)) {
-      const body = afterAt.slice(key.length).replace(/^[:：]\s*/, "").trim();
+      const { body } = splitBody(afterAt.slice(firstToken(afterAt).length));
+      const delivery = deliveryOf(tokenMarker);
       for (const bot of roster) {
         if (seen.has(bot.id)) continue;
         seen.add(bot.id);
-        found.push({ botId: bot.id, name: bot.name, body });
+        found.push({ botId: bot.id, name: bot.name, body, ...delivery });
       }
       continue;
     }
 
     const hit = matchRosterMention(afterAt, roster);
     if (!hit || seen.has(hit.bot.id)) continue;
-    const body = afterAt.slice(hit.consumed).replace(/^[:：]\s*/, "").trim();
+    const { body, marker } = splitBody(afterAt.slice(hit.consumed));
     seen.add(hit.bot.id);
-    found.push({ botId: hit.bot.id, name: hit.bot.name, body });
+    found.push({
+      botId: hit.bot.id,
+      name: hit.bot.name,
+      body,
+      ...deliveryOf(marker),
+    });
   }
 
   return found;
+}
+
+/**
+ * `@Someone: do x` where Someone is on nobody's roster.
+ * Today that line wakes no one and says nothing — the caller reports it.
+ */
+export function unmatchedMentions(text: string, roster: RosterEntry[]): string[] {
+  if (!text.trim()) return [];
+  const missing: string[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of scanFences(text)) {
+    if (!isRoutableLine(raw)) continue;
+    const line = raw.text.trim();
+    if (isGroupCommandLine(line)) continue;
+    if (parseSpawns(line).length > 0) continue;
+
+    const directed = DIRECTED_RE.exec(line);
+    if (!directed) continue;
+    const token = directed[1] ?? "";
+    const { key } = splitMarker(token);
+    if (!key || SPAWN.has(key) || ALL.has(key)) continue;
+
+    const afterAt = ASSIGNMENT_LINE_RE.exec(line)?.[1] ?? "";
+    if (matchRosterMention(afterAt, roster)) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    missing.push(token.replace(/[?!]$/, ""));
+  }
+
+  return missing;
 }
 
 export function mentionQueryAt(

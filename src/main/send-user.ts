@@ -1,12 +1,22 @@
-import { parseHandoffs } from "../shared/mentions";
+import { parseHandoffs, unmatchedMentions } from "../shared/mentions";
 import {
   isHarnessOnlyUserText,
   shouldPostUserMessage,
   shouldWakeTargets,
+  unknownNameNotice,
 } from "../shared/route";
 import { parseSendPayload, resolveSendTargets } from "../shared/send";
 import type { SendMessageInput } from "../shared/types";
-import { applyGroupCommands, applySpawns, latestActiveId, postLog, wakeMany } from "./harness";
+import {
+  applyGroupCommands,
+  applySpawns,
+  latestActiveId,
+  openUserTask,
+  postLog,
+  postNotice,
+  wakeMany,
+} from "./harness";
+import { id } from "./ids";
 import { getGroup, listBots } from "./store";
 
 export async function sendUserMessage(
@@ -68,7 +78,22 @@ export async function sendUserMessage(
       toBotIds: targetIds,
     });
   }
+  const missing = unmatchedMentions(parsed.text, roster);
+  if (missing.length > 0) {
+    await postNotice(
+      undefined,
+      {
+        dm: Boolean(parsed.botId),
+        groupId: group?.id,
+        botId: parsed.botId ?? targetIds[0],
+      },
+      unknownNameNotice(missing),
+    );
+  }
+
   if (shouldWakeTargets({ harnessOnly, botId: parsed.botId })) {
+    const taskId = id("task");
+    openUserTask({ taskId, request: parsed.text, branches: targetIds.length });
     wakeMany(
       undefined,
       targetIds,
@@ -77,6 +102,7 @@ export async function sendUserMessage(
       parsed.botId ? undefined : group?.id,
       Boolean(parsed.botId),
       parsed.sendMode,
+      taskId,
     );
     return { targetIds };
   }

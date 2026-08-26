@@ -1,3 +1,5 @@
+import { routableLines } from "./fences.ts";
+
 export const MAX_SPAWNS = 5;
 
 export type SpawnSpec = {
@@ -59,7 +61,7 @@ export function parseSpawns(text: string, skipNames: string[] = []): SpawnSpec[]
   const found: SpawnSpec[] = [];
   const seen = new Set<string>();
 
-  for (const raw of text.split(/\r?\n/)) {
+  for (const raw of routableLines(text)) {
     if (found.length >= MAX_SPAWNS) break;
     const spec = parseLine(raw.trim());
     if (!spec) continue;

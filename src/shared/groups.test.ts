@@ -70,3 +70,9 @@ test("isGroupCommandLine is true only for group lines", () => {
   assert.equal(isGroupCommandLine("@team: synka"), false);
   assert.equal(isGroupCommandLine("@Writer: do X"), false);
 });
+
+test("a fenced @team line does not create a group", () => {
+  const text = ["Example:", "```", "@team Grid: Ada, Bo", "```"].join("\n");
+  assert.deepEqual(parseGroupCommands(text), []);
+  assert.equal(parseGroupCommands("@team Grid: Ada, Bo").length, 1);
+});

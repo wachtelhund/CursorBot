@@ -202,3 +202,91 @@ test("assignmentText clips a long empty-request result", () => {
   assert.match(text, /Context from Chief/);
   assert.ok(text.length < 2200);
 });
+
+test("every wake carries the thread the bot was pulled into", () => {
+  const prompt = composeWakePrompt({
+    ...base,
+    isFirst: false,
+    source: "handoff",
+    fromName: "Writer",
+    hop: 1,
+    text: "review the draft",
+    digest: "Thread so far (oldest first, clipped):\nYou: ship the readme\nWriter: drafted it",
+  });
+  assert.match(prompt, /Thread so far/);
+  assert.match(prompt, /Writer: drafted it/);
+  assert.ok(prompt.endsWith("Task:\nreview the draft"));
+});
+
+test("a hop says what the whole task was, not just its slice", () => {
+  const prompt = composeWakePrompt({
+    ...base,
+    isFirst: false,
+    source: "handoff",
+    fromName: "Writer",
+    hop: 1,
+    text: "check the register map",
+    taskRequest: "the P1 parser drops the export register",
+  });
+  assert.match(prompt, /This came out of: the P1 parser drops the export register/);
+});
+
+test("the task line is never duplicated as its own origin", () => {
+  const prompt = composeWakePrompt({
+    ...base,
+    isFirst: false,
+    source: "handoff",
+    fromName: "Writer",
+    hop: 1,
+    text: "review the draft",
+    taskRequest: "review the draft",
+  });
+  assert.equal(prompt.includes("This came out of"), false);
+});
+
+test("every wake documents queue, interrupt, and ask", () => {
+  for (const isFirst of [true, false]) {
+    const prompt = composeWakePrompt({ ...base, isFirst, source: "user" });
+    assert.match(prompt, /`@Name: request` queues work/);
+    assert.match(prompt, /`@Name!: request` interrupts/);
+    assert.match(prompt, /`@Name\?: question` asks/);
+    assert.match(prompt, /Put examples inside a ``` block/);
+  }
+});
+
+test("a wake names the teammates whose runs are already going", () => {
+  const prompt = composeWakePrompt({
+    ...base,
+    isFirst: false,
+    source: "user",
+    busyNames: ["Writer", "Chief"],
+  });
+  assert.match(prompt, /Running right now: @Writer\./);
+  assert.equal(prompt.includes("@Chief."), false);
+});
+
+test("a question wake answers the asker and starts no work", () => {
+  const prompt = composeWakePrompt({
+    ...base,
+    isFirst: false,
+    source: "question",
+    fromName: "Writer",
+    hop: 1,
+    text: "which register holds export",
+  });
+  assert.match(prompt, /Wake: question from Writer \(hop 1\)/);
+  assert.match(prompt, /Your reply goes back to Writer/);
+  assert.match(prompt, /do not start the job yourself/);
+  assert.equal(prompt.includes("Do the work now"), false);
+});
+
+test("a question that comes back is delivered like any other result", () => {
+  assert.equal(
+    shouldDeliverHandoffResult({
+      source: "question",
+      publicText: "register 1-8-2",
+      fromBotId: "chief",
+    }),
+    true,
+  );
+});

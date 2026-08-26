@@ -90,9 +90,17 @@ Enable it for this workspace via `.cursor/mcp.json` (already in the repo). Reloa
 
 ## Team
 
-Open **Team** in the sidebar. A line `@Research do X` or `@Research: do X` wakes that bot. `@all` on its own line wakes everyone. Mid-sentence `@Name` wakes no one. Bots can write `@Name: …` to each other.
+Open **Team** in the sidebar. A line `@Research do X` or `@Research: do X` wakes that bot. `@all` on its own line wakes everyone. Mid-sentence `@Name` wakes no one.
 
-Enter **queues** a prompt for after the current Cloud Agent run. **Steer** (button or ⌘Enter / Ctrl+Enter) cancels the active run and sends now.
+Bots reach each other the same three ways, each on its own line:
+
+- `@Name: request` — queues the job for after their current run
+- `@Name!: request` — interrupts the run they are in, for corrections
+- `@Name?: question` — asks; the answer comes back to whoever asked, not to you
+
+Enter **queues** a prompt for after the current Cloud Agent run; several queued messages merge into one run. **Steer** (button or ⌘Enter / Ctrl+Enter) cancels the active run and sends now.
+
+Every bot is woken with the recent thread, who is running right now, and what the original request was — they cannot read the app's threads otherwise. When a wake does not happen (hop limit, a name nobody has), the thread says so instead of going quiet.
 
 GitHub, AWS, and Cloudflare logins happen in Cursor, not here. Shared tokens go under Settings.
 

@@ -174,3 +174,12 @@ test("shouldSkipSpawn lets @ny recreate a deleted name", () => {
   assert.equal(shouldSkipSpawn(command!, ["Apputvecklare"]), false);
   assert.equal(shouldSkipSpawn(roster!, ["Apputvecklare"]), true);
 });
+
+test("a fenced @new line documents the syntax, it does not create a bot", () => {
+  const text = ["To add someone write:", "```", "@new Nova: analyst", "```"].join("\n");
+  assert.deepEqual(parseSpawns(text), []);
+  assert.deepEqual(
+    parseSpawns("@new Nova: analyst").map((spec) => spec.name),
+    ["Nova"],
+  );
+});

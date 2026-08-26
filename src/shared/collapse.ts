@@ -39,6 +39,7 @@ export type DmRow = {
   role: "user" | "assistant";
   content: string;
   inspect: boolean;
+  notice?: boolean;
   fromPeer: boolean;
   fromBotId?: string;
   fromName?: string;
@@ -144,6 +145,7 @@ export function isInspectMessage(
   previous: InspectMessage[] = [],
 ): boolean {
   if (message.from === "user") return false;
+  if (message.source === "notice") return false;
   if (message.source === "system") return true;
   if (isRosterNotice(message.content)) return true;
   // Hop persist stays inspect. The user-thread copy is written without source:handoff.
@@ -183,6 +185,7 @@ export type LogRow = {
   name: string;
   content: string;
   inspect: boolean;
+  notice?: boolean;
   botId?: string;
   toBotIds?: string[];
   createdAt?: string;
@@ -202,6 +205,19 @@ export function buildLogRows(
 ): LogRow[] {
   const rows: LogRow[] = [];
   for (const [index, message] of messages.entries()) {
+    if (message.source === "notice") {
+      rows.push({
+        id: message.id ?? `row_${index}`,
+        author: "bot",
+        name: message.name ?? "",
+        content: message.content,
+        inspect: false,
+        notice: true,
+        botId: message.botId,
+        createdAt: message.createdAt,
+      });
+      continue;
+    }
     if (message.source === "system" || isRosterNotice(message.content)) continue;
     const inspect = isInspectMessage(message, messages.slice(0, index));
     const routing =
@@ -339,7 +355,8 @@ export function hopsTowardBot<T extends LogHop>(log: T[], botId: string): T[] {
   const hops: T[] = [];
   for (const message of log) {
     if (message.from === "user") continue;
-    if (message.source === "system" || isRosterNotice(message.content)) continue;
+    if (message.source === "system" || message.source === "notice") continue;
+    if (isRosterNotice(message.content)) continue;
     const toMe = Boolean(message.toBotIds?.includes(botId));
     const myReply =
       message.source === "handoff" &&
@@ -439,6 +456,18 @@ export function buildDmRows(
   };
 
   for (const [index, message] of messages.entries()) {
+    if (message.source === "notice") {
+      push({
+        id: message.id,
+        role: "assistant",
+        content: message.content,
+        inspect: false,
+        notice: true,
+        fromPeer: false,
+        createdAt: message.createdAt,
+      });
+      continue;
+    }
     const fromPeer = Boolean(
       message.fromBotId &&
         message.fromBotId !== input.speakerId &&

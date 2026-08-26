@@ -1,3 +1,5 @@
+import { routableLines } from "./fences.ts";
+
 export type GroupCommand =
   | { kind: "create"; name: string; members: string[] }
   | { kind: "add"; name: string; members: string[] }
@@ -55,7 +57,7 @@ export function isGroupCommandLine(line: string): boolean {
 export function parseGroupCommands(text: string): GroupCommand[] {
   if (!text.trim()) return [];
   const found: GroupCommand[] = [];
-  for (const raw of text.split(/\r?\n/)) {
+  for (const raw of routableLines(text)) {
     const command = parseGroupCommandLine(raw);
     if (command) found.push(command);
   }

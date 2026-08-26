@@ -18,6 +18,7 @@ export type ThreadItem = {
   thinking?: boolean;
   fromPeer?: boolean;
   handoff?: boolean;
+  notice?: boolean;
   shared?: boolean;
   toBotIds?: string[];
   createdAt?: string;
@@ -36,6 +37,11 @@ function Avatar({ item, size = BUBBLE_AVATAR }: { item: ThreadItem; size?: numbe
       {item.name.slice(0, 2)}
     </span>
   );
+}
+
+/** The harness explaining a wake that did not happen — not a bot talking. */
+function Notice({ item }: { item: ThreadItem }) {
+  return <p className="chat-notice">{item.content}</p>;
 }
 
 function Bubble({
@@ -224,7 +230,7 @@ export function Thread({
         return (
           <li key={item.id} className={`chat-item fade-up${stamp ? " has-stamp" : ""}`}>
             {stamp && <p className="chat-stamp">{threadClock(item.createdAt, undefined, timeCopy())}</p>}
-            <Bubble item={item} names={names} />
+            {item.notice ? <Notice item={item} /> : <Bubble item={item} names={names} />}
           </li>
         );
       })}

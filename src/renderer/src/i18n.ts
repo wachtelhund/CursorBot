@@ -109,7 +109,7 @@ export const en = {
   resizeSidebarAria: "Resize sidebar",
   resizeSidebarTitle: "Drag to resize",
   composerHint:
-    "@name assigns · @all everyone · @new Name: role · @team Name: members · Enter queues · {shortcut} steers",
+    "@name assigns · @name! interrupts · @name? asks · @all everyone · @new Name: role · @team Name: members · Enter queues · {shortcut} steers",
   nameForMentions: "The name is used for @mentions.",
   rolePlaceholder: "Gathers sources and leaves a short briefing.",
   repoUrlOptional: "Repo URL (optional)",

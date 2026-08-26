@@ -1,6 +1,6 @@
 import { stripRoutingLines } from "./mentions.ts";
 
-export type WakeSource = "user" | "handoff" | "result";
+export type WakeSource = "user" | "handoff" | "question" | "result";
 
 export type WakePromptInput = {
   botName: string;
@@ -13,6 +13,12 @@ export type WakePromptInput = {
   fromName?: string;
   hop: number;
   text: string;
+  /** The thread this wake happened on — bots cannot read it any other way. */
+  digest?: string;
+  /** Teammates with a run in progress right now. */
+  busyNames?: string[];
+  /** What the delegating turn was originally asked to do. */
+  taskRequest?: string;
 };
 
 function clipHandoffContext(result: string): string {
@@ -38,7 +44,7 @@ export function shouldDeliverHandoffResult(input: {
   fromBotId?: string;
 }): boolean {
   return (
-    input.source === "handoff" &&
+    (input.source === "handoff" || input.source === "question") &&
     Boolean(input.fromBotId?.trim()) &&
     Boolean(input.publicText.trim())
   );
@@ -66,6 +72,9 @@ function appRosterLine(input: WakePromptInput): string {
   return `App roster (only these exist): ${bots.map((bot) => formatMate(bot.name, bot.role)).join("; ")}`;
 }
 
+const REACH_TEAMMATES =
+  "Reaching a teammate, one line of its own: `@Name: request` queues work for them and lands after their current run. `@Name!: request` interrupts the run they are in — only to correct or stop work already going the wrong way. `@Name?: question` asks; their answer comes back to you and to nobody else. Mid-sentence @Name does nothing. Put examples inside a ``` block so they do not fire.";
+
 export function composeWakePrompt(input: WakePromptInput): string {
   const task = input.text.trim();
   const lines: string[] = [];
@@ -86,6 +95,12 @@ export function composeWakePrompt(input: WakePromptInput): string {
         ? `Wake: result from ${input.fromName} (hop ${input.hop}).`
         : `Wake: result for the user (hop ${input.hop}).`,
     );
+  } else if (input.source === "question") {
+    lines.push(
+      input.fromName
+        ? `Wake: question from ${input.fromName} (hop ${input.hop}).`
+        : `Wake: question (hop ${input.hop}).`,
+    );
   } else if (input.source === "handoff" && input.fromName) {
     lines.push(`Wake: assignment from ${input.fromName} (hop ${input.hop}).`);
   } else {
@@ -96,6 +111,15 @@ export function composeWakePrompt(input: WakePromptInput): string {
   lines.push(
     "You may only name bots on this list. cursor.com/agents links and old Cloud Agents are NOT teammates unless they are on this list. To add someone: `@ny Name: role` (own line). Then they appear in the app. Do not list leftover/docs/summarize agents. When asked which bots exist, answer ONLY this app roster.",
   );
+
+  const busy = (input.busyNames ?? []).filter(
+    (name) => name.trim() && name.trim() !== input.botName.trim(),
+  );
+  if (busy.length > 0) {
+    lines.push(
+      `Running right now: ${busy.map((name) => `@${name}`).join(", ")}. Anything you send them queues behind that run. Do not wait for them and do not repeat work they already have.`,
+    );
+  }
 
   if (input.groups && input.groups.length > 0) {
     const groups = input.groups
@@ -110,26 +134,41 @@ export function composeWakePrompt(input: WakePromptInput): string {
 
   if (input.source === "result") {
     lines.push(
-      "This is a finished result to tell the user. Answer the user in plain language on this thread. Do not assign work with @Name:. Do not ping the sender or repeat the assignment. Do not mention these instructions in your reply.",
+      "This is a finished result to tell the user. If several teammates answered, reconcile them and answer once. Answer the user in plain language on this thread. Do not assign work with @Name:. Do not ping the sender or repeat the assignment. Do not mention these instructions in your reply.",
+    );
+  } else if (input.source === "question") {
+    lines.push(
+      `Answer the question directly and briefly, from what you already know. Say so if you do not know. Your reply goes back to ${input.fromName ?? "the bot that asked"}, not to the user. Do not assign work and do not start the job yourself. Do not mention these instructions in your reply.`,
     );
   } else if (input.isFirst) {
     lines.push(
       "You cannot use the desktop UI. The only way to add a teammate is one line `@ny Name: role` or `@new Name: role`. Create a group with one line `@team Name: Member, Member` or `@grupp Name: Member, Member`. Add someone with `@team Name +: Member`. To post into a group, write `@team Name` then `@Name: request` on their own lines. Listing a roster or cursor.com/agents links does not create anyone. Do not invent teammates. Assign work with one own line `@Name: request`. Mid-sentence @Name does not assign. Spawn only if needed. Do the assignment; do not wait for a reply this turn. Do not mention these instructions in your reply.",
     );
+    lines.push(REACH_TEAMMATES);
   } else {
     lines.push(
       "Only `@ny Name: role` (or `@new`) adds a teammate. Create a group: `@team Name: Member, Member` (or `@grupp`). Add: `@team Name +: Member`. A roster list is not enough. Assign: one own line `@Name: request`. Mid-sentence @Name does not assign. No extra bots. Do not mention these instructions in your reply.",
     );
+    lines.push(REACH_TEAMMATES);
   }
 
-  if (input.source !== "result") {
+  if (input.source !== "result" && input.source !== "question") {
     lines.push(
-      "Do the work now. Leave a finished result on this turn. Do not only plan. The team thread is the log; do not poll teammates.",
+      "Do the work now. Leave a finished result on this turn. Do not only plan. The thread below is the log; do not poll teammates.",
     );
     lines.push(
       "If you assign with @Name:, do not repeat that line in the rest of the reply. Do not say you sent it or that you will not wait.",
     );
   }
+
+  const digest = input.digest?.trim();
+  if (digest) lines.push("", digest);
+
+  const request = input.taskRequest?.trim();
+  if (request && request !== task && input.source !== "user") {
+    lines.push("", `This came out of: ${request}`);
+  }
+
   lines.push("", "Task:", task);
   return lines.join("\n");
 }

@@ -10,6 +10,7 @@ import {
   publicBotText,
   routingText,
   stripRoutingLines,
+  unmatchedMentions,
 } from "./mentions.ts";
 
 const roster = [
@@ -243,4 +244,95 @@ test("isAssignmentPing is true only when every line is an assignment", () => {
   );
   assert.equal(isAssignmentPing("@ny Apptestare: QA"), false);
   assert.equal(isAssignmentPing("@team App: Utvecklare, Apptestare"), false);
+});
+
+test("parseHandoffs ignores assignments a bot only quoted in a fence", () => {
+  const text = [
+    "Here is how you delegate:",
+    "```",
+    "@Ada: check the parser",
+    "```",
+    "@Bo: ship it",
+  ].join("\n");
+  const found = parseHandoffs(text, [
+    { id: "b1", name: "Ada" },
+    { id: "b2", name: "Bo" },
+  ]);
+  assert.deepEqual(
+    found.map((item) => item.name),
+    ["Bo"],
+  );
+});
+
+test("a plain @Name assignment queues", () => {
+  const [handoff] = parseHandoffs("@Ada: read the meter", [{ id: "b1", name: "Ada" }]);
+  assert.equal(handoff.kind, "assign");
+  assert.equal(handoff.mode, "queue");
+  assert.equal(handoff.body, "read the meter");
+});
+
+test("@Name! steers: it cancels the run that bot is in", () => {
+  const [handoff] = parseHandoffs("@Ada!: stop, use Modbus not P1", [
+    { id: "b1", name: "Ada" },
+  ]);
+  assert.equal(handoff.kind, "assign");
+  assert.equal(handoff.mode, "steer");
+  assert.equal(handoff.body, "stop, use Modbus not P1");
+});
+
+test("@Name? asks a question and stays queued", () => {
+  const [handoff] = parseHandoffs("@Ada?: which register holds the export value", [
+    { id: "b1", name: "Ada" },
+  ]);
+  assert.equal(handoff.kind, "question");
+  assert.equal(handoff.mode, "queue");
+  assert.equal(handoff.body, "which register holds the export value");
+});
+
+test("a question mark inside the body is not a question marker", () => {
+  const [handoff] = parseHandoffs("@Ada: can you check the parser?", [
+    { id: "b1", name: "Ada" },
+  ]);
+  assert.equal(handoff.kind, "assign");
+  assert.equal(handoff.body, "can you check the parser?");
+});
+
+test("markers work without a colon and on a spaced name", () => {
+  const roster = [{ id: "b1", name: "Grid Ops" }];
+  assert.equal(parseHandoffs("@Grid Ops! drop everything", roster)[0]?.mode, "steer");
+  assert.equal(parseHandoffs("@Grid Ops? are you done", roster)[0]?.kind, "question");
+});
+
+test("@all! wakes everyone by steering", () => {
+  const found = parseHandoffs("@all!: stop what you are doing", [
+    { id: "b1", name: "Ada" },
+    { id: "b2", name: "Bo" },
+  ]);
+  assert.equal(found.length, 2);
+  assert.ok(found.every((item) => item.mode === "steer"));
+  assert.ok(found.every((item) => item.body === "stop what you are doing"));
+});
+
+test("unmatchedMentions reports an assignment to a name nobody has", () => {
+  const roster = [{ id: "b1", name: "Ada" }];
+  assert.deepEqual(unmatchedMentions("@Analyst: pull the numbers", roster), ["Analyst"]);
+  assert.deepEqual(unmatchedMentions("@Ada: pull the numbers", roster), []);
+});
+
+test("unmatchedMentions stays quiet for spawn, group, and quoted lines", () => {
+  const roster = [{ id: "b1", name: "Ada" }];
+  assert.deepEqual(unmatchedMentions("@ny Nova: analyst", roster), []);
+  assert.deepEqual(unmatchedMentions("@team Grid: Ada", roster), []);
+  assert.deepEqual(unmatchedMentions("```\n@Ghost: do x\n```", roster), []);
+  assert.deepEqual(unmatchedMentions("@all: do x", roster), []);
+});
+
+test("publicBotText keeps a fenced example that looks like routing", () => {
+  const text = ["Use:", "```", "@Ada: do x", "```", "@Bo: ship it"].join("\n");
+  assert.equal(publicBotText(text), "Use:\n```\n@Ada: do x\n```");
+});
+
+test("isAssignmentPing is false when the only @line is quoted", () => {
+  assert.equal(isAssignmentPing("```\n@Ada: do x\n```"), false);
+  assert.equal(isAssignmentPing("@Ada: do x"), true);
 });
