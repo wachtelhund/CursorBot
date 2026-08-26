@@ -4,6 +4,7 @@ import {
   filterRoster,
   isAssignmentPing,
   isRoutingLine,
+  matchRosterMention,
   mentionQueryAt,
   parseHandoffs,
   publicBotText,
@@ -104,13 +105,92 @@ test("parseHandoffs ignores Chefens markdown roster", () => {
   assert.equal(parseHandoffs(paste, team).length, 0);
 });
 
+test("parseHandoffs matches a spaced name on its own line", () => {
+  const spaced = [
+    { id: "c", name: "Chief" },
+    { id: "e", name: "Ediel Expert" },
+  ];
+  assert.deepEqual(
+    parseHandoffs("@Ediel Expert: vad är senaste status?", spaced).map((item) => [
+      item.name,
+      item.body,
+    ]),
+    [["Ediel Expert", "vad är senaste status?"]],
+  );
+  assert.deepEqual(
+    parseHandoffs("@Ediel Expert vad är senaste status?", spaced).map((item) => [
+      item.name,
+      item.body,
+    ]),
+    [["Ediel Expert", "vad är senaste status?"]],
+  );
+  assert.deepEqual(
+    parseHandoffs("@Ediel Expert", spaced).map((item) => item.name),
+    ["Ediel Expert"],
+  );
+});
+
+test("parseHandoffs uses a unique prefix when only one name fits", () => {
+  const spaced = [{ id: "e", name: "Ediel Expert" }];
+  assert.equal(parseHandoffs("@Ediel: status", spaced)[0]?.name, "Ediel Expert");
+  assert.equal(parseHandoffs("@Ediel status", spaced)[0]?.name, "Ediel Expert");
+  assert.equal(parseHandoffs("@ediel", spaced)[0]?.name, "Ediel Expert");
+});
+
+test("parseHandoffs does not invent a short name when two Ediel* bots exist", () => {
+  const both = [
+    { id: "a", name: "Ediel" },
+    { id: "b", name: "Ediel Expert" },
+  ];
+  assert.equal(parseHandoffs("@Ediel: status", both)[0]?.name, "Ediel");
+  assert.equal(parseHandoffs("@Ediel Expert: status", both)[0]?.name, "Ediel Expert");
+  assert.equal(parseHandoffs("@Edi: status", both).length, 0);
+});
+
+test("parseHandoffs still ignores mid-sentence spaced mentions", () => {
+  const spaced = [{ id: "e", name: "Ediel Expert" }];
+  assert.deepEqual(parseHandoffs("fråga @Ediel Expert vad senaste status är", spaced), []);
+  assert.deepEqual(parseHandoffs("Please ask @Ediel Expert: status", spaced), []);
+});
+
+test("matchRosterMention prefers the longest existing name", () => {
+  const spaced = [
+    { id: "c", name: "Chief" },
+    { id: "e", name: "Ediel Expert" },
+  ];
+  const hit = matchRosterMention("Ediel Expert: status", spaced);
+  assert.equal(hit?.bot.name, "Ediel Expert");
+  assert.equal(hit?.consumed, "Ediel Expert".length);
+  assert.equal(matchRosterMention("Nope: hej", spaced), null);
+});
+
 test("mentionQueryAt reads the open @token", () => {
   assert.deepEqual(mentionQueryAt("hej @Re", 7), { start: 4, query: "Re" });
   assert.equal(mentionQueryAt("hej @Re sen", 11), null);
 });
 
+test("mentionQueryAt keeps a spaced query open while it still prefixes a name", () => {
+  const names = ["Chief", "Ediel Expert"];
+  assert.deepEqual(mentionQueryAt("hej @Ediel", 10, names), { start: 4, query: "Ediel" });
+  assert.deepEqual(mentionQueryAt("hej @Ediel ", 11, names), { start: 4, query: "Ediel " });
+  assert.deepEqual(mentionQueryAt("hej @Ediel Ex", 13, names), {
+    start: 4,
+    query: "Ediel Ex",
+  });
+  assert.equal(mentionQueryAt("hej @Ediel Expert vad", 21, names), null);
+});
+
 test("filterRoster is case-insensitive", () => {
   assert.equal(filterRoster(roster, "chi")[0]?.name, "Chief");
+});
+
+test("filterRoster offers a spaced name from a unique prefix", () => {
+  const spaced = [
+    { id: "c", name: "Chief" },
+    { id: "e", name: "Ediel Expert" },
+  ];
+  assert.equal(filterRoster(spaced, "Ediel")[0]?.name, "Ediel Expert");
+  assert.equal(filterRoster(spaced, "ediel ex")[0]?.name, "Ediel Expert");
 });
 
 test("stripRoutingLines drops @ny, @team and @Name lines from a bot result", () => {

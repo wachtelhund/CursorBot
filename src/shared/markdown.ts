@@ -12,6 +12,8 @@ export type Block =
   | { type: "ul"; items: Inline[][] }
   | { type: "ol"; items: Inline[][] };
 
+import { matchRosterMention, type RosterEntry } from "./mentions.ts";
+
 export function safeHttps(url: string): string | null {
   try {
     const parsed = new URL(url);
@@ -22,12 +24,12 @@ export function safeHttps(url: string): string | null {
   }
 }
 
-function parseInline(text: string): Inline[] {
+function parseInline(text: string, roster: RosterEntry[]): Inline[] {
   const out: Inline[] = [];
   let rest = text;
 
   while (rest.length > 0) {
-    const hit = nextInline(rest);
+    const hit = nextInline(rest, roster);
     if (!hit) {
       out.push({ type: "text", value: rest });
       break;
@@ -42,7 +44,7 @@ function parseInline(text: string): Inline[] {
 
 type Hit = { index: number; length: number; node: Inline };
 
-function nextInline(text: string): Hit | null {
+function nextInline(text: string, roster: RosterEntry[]): Hit | null {
   let best: Hit | null = null;
 
   function take(index: number, length: number, node: Inline) {
@@ -62,7 +64,7 @@ function nextInline(text: string): Hit | null {
       take(mdLink.index, mdLink[0].length, {
         type: "link",
         href,
-        children: parseInline(mdLink[1]),
+        children: parseInline(mdLink[1], roster),
       });
     }
   }
@@ -82,20 +84,31 @@ function nextInline(text: string): Hit | null {
 
   const bold = /\*\*([^\n]+?)\*\*/.exec(text);
   if (bold?.index !== undefined) {
-    take(bold.index, bold[0].length, { type: "bold", children: parseInline(bold[1]) });
+    take(bold.index, bold[0].length, { type: "bold", children: parseInline(bold[1], roster) });
   }
 
   const italic = /(?<!\*)\*(?!\*)([^\n*]+)\*(?!\*)/.exec(text);
   if (italic?.index !== undefined) {
     take(italic.index, italic[0].length, {
       type: "italic",
-      children: parseInline(italic[1]),
+      children: parseInline(italic[1], roster),
     });
   }
 
-  const mention = /@[A-Za-zÅÄÖåäö0-9_\-]+/.exec(text);
-  if (mention?.index !== undefined) {
-    take(mention.index, mention[0].length, { type: "mention", value: mention[0] });
+  const at = text.indexOf("@");
+  if (at >= 0) {
+    if (roster.length > 0) {
+      const hit = matchRosterMention(text.slice(at + 1), roster);
+      if (hit) {
+        const value = `@${text.slice(at + 1, at + 1 + hit.consumed)}`;
+        take(at, value.length, { type: "mention", value });
+      }
+    } else {
+      const mention = /@[A-Za-zÅÄÖåäö0-9_\-]+/.exec(text);
+      if (mention?.index !== undefined) {
+        take(mention.index, mention[0].length, { type: "mention", value: mention[0] });
+      }
+    }
   }
 
   return best;
@@ -105,7 +118,8 @@ const HEADING = /^(#{1,3})\s+(.+)$/;
 const UL = /^[-*]\s+(.+)$/;
 const OL = /^\d+\.\s+(.+)$/;
 
-export function parseMarkdown(src: string): Block[] {
+export function parseMarkdown(src: string, names: string[] = []): Block[] {
+  const roster = names.map((name) => ({ id: name, name }));
   const lines = src.replace(/\r\n/g, "\n").split("\n");
   const blocks: Block[] = [];
   let i = 0;
@@ -120,7 +134,7 @@ export function parseMarkdown(src: string): Block[] {
     const heading = HEADING.exec(line);
     if (heading) {
       const level = heading[1].length as 1 | 2 | 3;
-      blocks.push({ type: "h", level, children: parseInline(heading[2]) });
+      blocks.push({ type: "h", level, children: parseInline(heading[2], roster) });
       i += 1;
       continue;
     }
@@ -130,7 +144,7 @@ export function parseMarkdown(src: string): Block[] {
       while (i < lines.length) {
         const item = UL.exec(lines[i]);
         if (!item) break;
-        items.push(parseInline(item[1]));
+        items.push(parseInline(item[1], roster));
         i += 1;
       }
       blocks.push({ type: "ul", items });
@@ -142,14 +156,14 @@ export function parseMarkdown(src: string): Block[] {
       while (i < lines.length) {
         const item = OL.exec(lines[i]);
         if (!item) break;
-        items.push(parseInline(item[1]));
+        items.push(parseInline(item[1], roster));
         i += 1;
       }
       blocks.push({ type: "ol", items });
       continue;
     }
 
-    blocks.push({ type: "p", children: parseInline(line) });
+    blocks.push({ type: "p", children: parseInline(line, roster) });
     i += 1;
   }
 

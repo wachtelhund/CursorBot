@@ -74,6 +74,6 @@ function renderBlock(block: Block, index: number): ReactNode {
   }
 }
 
-export function ChatMarkdown({ text }: { text: string }) {
-  return <div className="chat-md">{parseMarkdown(text).map(renderBlock)}</div>;
+export function ChatMarkdown({ text, names = [] }: { text: string; names?: string[] }) {
+  return <div className="chat-md">{parseMarkdown(text, names).map(renderBlock)}</div>;
 }

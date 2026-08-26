@@ -27,7 +27,8 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
 
-  const mention = mentionQueryAt(draft, caret);
+  const names = bots.map((bot) => bot.name);
+  const mention = mentionQueryAt(draft, caret, names);
   const suggestions = useMemo(() => {
     if (!mention) return [];
     return filterRoster(

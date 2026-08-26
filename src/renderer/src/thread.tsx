@@ -38,7 +38,15 @@ function Avatar({ item, size = BUBBLE_AVATAR }: { item: ThreadItem; size?: numbe
   );
 }
 
-function Bubble({ item, inspect = false }: { item: ThreadItem; inspect?: boolean }) {
+function Bubble({
+  item,
+  inspect = false,
+  names = [],
+}: {
+  item: ThreadItem;
+  inspect?: boolean;
+  names?: string[];
+}) {
   const isUser = item.author === "user";
   const face = inspect ? COLLAPSE_AVATAR : BUBBLE_AVATAR;
 
@@ -54,7 +62,7 @@ function Bubble({ item, inspect = false }: { item: ThreadItem; inspect?: boolean
         {item.thinking && !item.content ? (
           <p className="text-wait">{t("thinking")}</p>
         ) : (
-          <ChatMarkdown text={item.content} />
+          <ChatMarkdown text={item.content} names={names} />
         )}
       </div>
     </div>
@@ -160,6 +168,7 @@ export function Thread({
 }) {
   useLang();
   const [openBundles, setOpenBundles] = useState<Record<string, boolean>>({});
+  const names = bots.map((bot) => bot.name);
 
   if (items.length === 0) return <>{empty}</>;
 
@@ -200,7 +209,7 @@ export function Thread({
                 <div className="chat-inspect">
                   {segment.items.map((item) => (
                     <div key={item.id} className="mt-2 first:mt-0">
-                      <Bubble item={item} inspect />
+                      <Bubble item={item} inspect names={names} />
                     </div>
                   ))}
                 </div>
@@ -215,7 +224,7 @@ export function Thread({
         return (
           <li key={item.id} className={`chat-item fade-up${stamp ? " has-stamp" : ""}`}>
             {stamp && <p className="chat-stamp">{threadClock(item.createdAt, undefined, timeCopy())}</p>}
-            <Bubble item={item} />
+            <Bubble item={item} names={names} />
           </li>
         );
       })}

@@ -28,6 +28,33 @@ test("parses Chefen-style team bullets with bold and https links", () => {
   }
 });
 
+test("highlights a full spaced roster name, not just the first word", () => {
+  const [p] = parseMarkdown("fråga @Ediel Expert vad senaste status är", [
+    "Chief",
+    "Ediel Expert",
+  ]);
+  assert.equal(p?.type, "p");
+  if (p?.type !== "p") throw new Error("expected p");
+  const mention = p.children.find((node) => node.type === "mention");
+  assert.equal(mention?.type === "mention" ? mention.value : "", "@Ediel Expert");
+  assert.equal(
+    p.children.some((node) => node.type === "text" && node.value.startsWith(" Expert")),
+    false,
+  );
+});
+
+test("does not invent @Ediel when only Ediel Expert exists", () => {
+  const [p] = parseMarkdown("@Ediel Expert: status", ["Ediel Expert"]);
+  assert.equal(p?.type, "p");
+  if (p?.type !== "p") throw new Error("expected p");
+  assert.deepEqual(
+    p.children.filter((node) => node.type === "mention").map((node) =>
+      node.type === "mention" ? node.value : "",
+    ),
+    ["@Ediel Expert"],
+  );
+});
+
 test("renders bold, italic, inline code, and mentions", () => {
   const [p] = parseMarkdown("see **bold** and *italic* plus `aws login` @Chefen");
   assert.equal(p?.type, "p");

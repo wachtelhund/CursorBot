@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { parseHandoffs } from "./mentions.ts";
 import { parseSendPayload, resolveLogThread, resolveSendTargets } from "./send.ts";
 
 test("parseSendPayload reads { text, botId }", () => {
@@ -44,6 +45,20 @@ test("resolveSendTargets keeps a directed DM on that bot only", () => {
       fallbackId: "chefen",
     }),
     ["chefen"],
+  );
+});
+
+test("resolveSendTargets wakes a unique spaced mention instead of the fallback", () => {
+  const mentioned = parseHandoffs("@Ediel Expert: status", [
+    { id: "chief", name: "Chief" },
+    { id: "ediel", name: "Ediel Expert" },
+  ]).map((item) => item.botId);
+  assert.deepEqual(
+    resolveSendTargets({
+      mentionedIds: mentioned,
+      fallbackId: "chief",
+    }),
+    ["ediel"],
   );
 });
 

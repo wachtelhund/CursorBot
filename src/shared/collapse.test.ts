@@ -109,6 +109,17 @@ test("handoffRecipientIds parses @Name: when toBotIds is missing", () => {
   );
 });
 
+test("handoffRecipientIds parses a spaced roster name", () => {
+  const spaced = [
+    { id: "chef", name: "Chief" },
+    { id: "ediel", name: "Ediel Expert" },
+  ];
+  assert.deepEqual(
+    handoffRecipientIds([{ content: "@Ediel Expert: vad är senaste status?" }], spaced),
+    ["ediel"],
+  );
+});
+
 test("handoffRecipientIds does not treat the speaker as a recipient", () => {
   assert.equal(
     handoffRecipientIds([{ content: "@Apptestare: stå upp" }], roster).includes("chef"),

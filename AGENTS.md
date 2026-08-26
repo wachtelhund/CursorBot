@@ -14,7 +14,7 @@ Desktop teammates. Each bot is a Cursor Cloud Agent via `@cursor/sdk`. Usage is 
 Bots do not share Cloud Agent memory. The app is the bus (same idea as Paperclip's heartbeat/wakeup).
 
 - A send is a **wake**: `{ bot, text, source: user | handoff }`. The trigger text is never dropped.
-- **Team** is the shared log. A line `@Name: request` or `@Name request` assigns work. Mid-sentence `@Name` does not. `@alla:` / line-start `@alla` takes everyone. No assignment → most recently active bot.
+- **Team** is the shared log. A line `@Name: request` or `@Name request` assigns work. Names may contain spaces; match the longest unique roster prefix (case-insensitive). Mid-sentence `@Name` does not assign. `@alla:` / line-start `@alla` takes everyone. No assignment → most recently active bot.
 - A directed DM (`botId` set) wakes only that bot. Mentions in that message do not auto-wake extras.
 - `@Name: request` from a bot wakes that bot with the request body. Context is clipped in only when the request is empty (assignment pings stripped). Max 3 hops.
 - `@ny Name: role` / `@new Name: role` on its own line creates a teammate (`createBot`). A markdown roster with `**Name** — role https://cursor.com/agents/bc-…` is also parsed (speaker skipped; `agentId` attached). No auto-wake unless the same message also has `@Name: request`.
