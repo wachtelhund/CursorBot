@@ -22,7 +22,7 @@ import { Thread, type ThreadItem } from "./thread";
 import { t, useLang } from "./i18n";
 import { buildDmRows, buildLogRows, mergeBusLogs } from "@shared/collapse";
 import { sortBots } from "@shared/bots";
-import { LATEST_RELEASE_PAGE, type UpdateAvailable, type UpdateCheckResult } from "@shared/updates";
+import type { UpdateAvailable, UpdateCheckResult, UpdateProgress } from "@shared/updates";
 import type { SendMode } from "@shared/send-mode";
 
 const DEFAULT_MODEL = "composer-2.5";
@@ -51,6 +51,8 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [appVersion, setAppVersion] = useState<string | undefined>();
   const [availableUpdate, setAvailableUpdate] = useState<UpdateAvailable | null>(null);
+  const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
   const [editingBotId, setEditingBotId] = useState<string | null>(null);
@@ -133,6 +135,13 @@ export function App() {
       cancelled = true;
     };
   }, [load]);
+
+  useEffect(() => {
+    return window.cursorBots.onUpdateProgress?.((progress) => {
+      setUpdateProgress(progress);
+      if (progress.phase === "error") setUpdateError(progress.message ?? t("updateFailed"));
+    });
+  }, []);
 
   useEffect(() => {
     if (typeof window.cursorBots.checkForUpdates !== "function") return;
@@ -472,8 +481,29 @@ export function App() {
     setAvailableUpdate(result.available ? result : null);
   }
 
-  function openUpdate(url?: string) {
-    void window.cursorBots.openExternal(url || LATEST_RELEASE_PAGE);
+  async function startUpdate() {
+    if (typeof window.cursorBots.applyUpdate !== "function") {
+      setUpdateError(t("restartAppWindow"));
+      return;
+    }
+    setUpdateError(null);
+    setUpdateProgress({ phase: "downloading", percent: 0 });
+    try {
+      await window.cursorBots.applyUpdate();
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : t("updateFailed"));
+      setUpdateProgress(null);
+    }
+  }
+
+  function updateLabel(version: string): string {
+    if (updateProgress?.phase === "downloading") {
+      return t("downloadingUpdate", { percent: updateProgress.percent ?? 0 });
+    }
+    if (updateProgress?.phase === "installing" || updateProgress?.phase === "restarting") {
+      return t("installingUpdate");
+    }
+    return t("updateTo", { version });
   }
 
   function selectChat(id: string) {
@@ -651,14 +681,15 @@ export function App() {
         {availableUpdate && (
           <div className="flex items-center justify-between gap-3 bg-accent/15 px-5 py-2.5">
             <p className="min-w-0 text-[13px] text-ink">
-              {t("updateAvailable", { version: availableUpdate.version })}
+              {updateError ?? t("updateAvailable", { version: availableUpdate.version })}
             </p>
             <button
               type="button"
-              onClick={() => openUpdate(availableUpdate.url)}
-              className="app-no-drag shrink-0 rounded-full bg-accent px-3 py-1.5 text-[13px] font-medium text-white"
+              disabled={Boolean(updateProgress && updateProgress.phase !== "error")}
+              onClick={() => void startUpdate()}
+              className="app-no-drag shrink-0 rounded-full bg-accent px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-30"
             >
-              {t("updateTo", { version: availableUpdate.version })}
+              {updateLabel(availableUpdate.version)}
             </button>
           </div>
         )}
@@ -730,10 +761,11 @@ export function App() {
                 {availableUpdate && (
                   <button
                     type="button"
-                    onClick={() => openUpdate(availableUpdate.url)}
-                    className="rounded-full bg-accent px-3 py-1.5 text-[12px] font-medium text-white"
+                    disabled={Boolean(updateProgress && updateProgress.phase !== "error")}
+                    onClick={() => void startUpdate()}
+                    className="rounded-full bg-accent px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-30"
                   >
-                    {t("updateTo", { version: availableUpdate.version })}
+                    {updateLabel(availableUpdate.version)}
                   </button>
                 )}
                 {selected?.agentId && (

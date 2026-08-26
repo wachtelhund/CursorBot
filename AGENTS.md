@@ -4,7 +4,7 @@ Desktop teammates. Each bot is a Cursor Cloud Agent via `@cursor/sdk`. Usage is 
 
 ## Layout
 
-- `src/main` — Electron main: store, settings, IPC, harness
+- `src/main` — Electron main: store, settings, IPC, harness, in-app update install (download GitHub asset, do not open the release page)
 - `src/preload` — `window.cursorBots`
 - `src/shared` — types, mentions, wake prompts
 - `src/renderer` — chat UI

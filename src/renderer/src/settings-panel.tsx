@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AppSettings, SecretName } from "@shared/types";
-import type { UpdateCheckResult } from "@shared/updates";
+import type { UpdateCheckResult, UpdateProgress } from "@shared/updates";
 import { t } from "./i18n";
 import { CrossIcon } from "./icons";
 
@@ -36,6 +36,15 @@ export function SettingsPanel({
   const [checkStatus, setCheckStatus] = useState<CheckStatus>("idle");
   const [checkResult, setCheckResult] = useState<UpdateCheckResult | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<UpdateProgress | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
+
+  useEffect(() => {
+    return window.cursorBots.onUpdateProgress?.((next) => {
+      setProgress(next);
+      if (next.phase === "error") setApplyError(next.message ?? t("updateFailed"));
+    });
+  }, []);
 
   async function saveSecret() {
     setSecretError(null);
@@ -74,8 +83,29 @@ export function SettingsPanel({
     }
   }
 
-  async function openRelease(url: string) {
-    await window.cursorBots.openExternal(url);
+  async function applyUpdate() {
+    if (typeof window.cursorBots.applyUpdate !== "function") {
+      setApplyError(t("restartAppWindow"));
+      return;
+    }
+    setApplyError(null);
+    setProgress({ phase: "downloading", percent: 0 });
+    try {
+      await window.cursorBots.applyUpdate();
+    } catch (error) {
+      setApplyError(error instanceof Error ? error.message : t("updateFailed"));
+      setProgress(null);
+    }
+  }
+
+  function updateLabel(version: string): string {
+    if (progress?.phase === "downloading") {
+      return t("downloadingUpdate", { percent: progress.percent ?? 0 });
+    }
+    if (progress?.phase === "installing" || progress?.phase === "restarting") {
+      return t("installingUpdate");
+    }
+    return t("updateTo", { version });
   }
 
   async function removeSecret(name: string) {
@@ -129,19 +159,14 @@ export function SettingsPanel({
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => void openRelease(checkResult.url)}
-                  className="rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white"
+                  disabled={Boolean(progress && progress.phase !== "error")}
+                  onClick={() => void applyUpdate()}
+                  className="rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white disabled:opacity-30"
                 >
-                  {t("updateTo", { version: checkResult.version })}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void openRelease(checkResult.url)}
-                  className="rounded-full px-3 py-1.5 text-sm text-mute hover:text-ink"
-                >
-                  {t("openRelease")}
+                  {updateLabel(checkResult.version)}
                 </button>
               </div>
+              {applyError && <p className="mt-2 text-[12px] text-danger">{applyError}</p>}
             </div>
           )}
           {checkStatus === "error" && checkError && (

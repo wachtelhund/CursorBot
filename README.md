@@ -46,7 +46,9 @@ xattr -cr "/Applications/Cursor Bots.app"
 
 ### Updates
 
-In the app, Settings → **Check for updates**, or the **Update to x.y.z** banner, opens the next GitHub release page. It does not install the update for you.
+Settings → **Check for updates**, or the **Update to x.y.z** banner, downloads the installer for this machine and installs it. The app restarts when it is done. It does not open GitHub.
+
+The first build that contains this button still has to be installed by hand. After that, later versions install from the button. On macOS the installer strips Gatekeeper quarantine (`xattr`) after it copies the app.
 
 A GitHub Release is created when you push a `v*` tag (e.g. `v0.1.1`) or publish a release. The **Release** workflow can also be run by hand from Actions — then files land as workflow artifacts, not on a GitHub Release.
 

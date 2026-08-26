@@ -14,7 +14,7 @@ import type {
   UpsertSecretInput,
   UsagePayload,
 } from "../shared/types";
-import type { UpdateCheckResult } from "../shared/updates";
+import type { UpdateCheckResult, UpdateProgress } from "../shared/updates";
 
 const api = {
   listBots: (): Promise<Bot[]> => ipcRenderer.invoke("bots:list"),
@@ -63,6 +63,14 @@ const api = {
     ipcRenderer.invoke("shell:open", url),
   checkForUpdates: (): Promise<UpdateCheckResult> =>
     ipcRenderer.invoke("updates:check"),
+  applyUpdate: (): Promise<void> => ipcRenderer.invoke("updates:apply"),
+  onUpdateProgress: (handler: (progress: UpdateProgress) => void): (() => void) => {
+    const listener = (_event: unknown, data: UpdateProgress) => handler(data);
+    ipcRenderer.on("updates:progress", listener);
+    return () => {
+      ipcRenderer.removeListener("updates:progress", listener);
+    };
+  },
   onEvent: (handler: (event: StreamEvent) => void): (() => void) => {
     const listener = (_event: unknown, data: StreamEvent) => handler(data);
     ipcRenderer.on("bots:event", listener);

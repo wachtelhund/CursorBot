@@ -3,9 +3,12 @@ import { test } from "node:test";
 import {
   LATEST_RELEASE_PAGE,
   httpsUrl,
+  isAllowedInstallerUrl,
   isNewerVersion,
   normalizeVersion,
   parseLatestRelease,
+  parseReleaseAssets,
+  pickInstallerUrl,
   versionParts,
 } from "./updates.ts";
 
@@ -75,4 +78,93 @@ test("parseLatestRelease falls back to the releases page and rejects bad payload
 
   assert.throws(() => parseLatestRelease(null, "0.1.0"), /Invalid release payload/);
   assert.throws(() => parseLatestRelease({ tag_name: "" }, "0.1.0"), /Invalid release payload/);
+});
+
+const v011Assets = [
+  {
+    name: "Cursor-Bots-0.1.1-mac-arm64.dmg",
+    browser_download_url:
+      "https://github.com/wachtelhund/CursorBot/releases/download/v0.1.1/Cursor-Bots-0.1.1-mac-arm64.dmg",
+  },
+  {
+    name: "Cursor-Bots-0.1.1-mac-x64.dmg",
+    browser_download_url:
+      "https://github.com/wachtelhund/CursorBot/releases/download/v0.1.1/Cursor-Bots-0.1.1-mac-x64.dmg",
+  },
+  {
+    name: "Cursor-Bots-0.1.1-win-x64.exe",
+    browser_download_url:
+      "https://github.com/wachtelhund/CursorBot/releases/download/v0.1.1/Cursor-Bots-0.1.1-win-x64.exe",
+  },
+  {
+    name: "Cursor-Bots-0.1.1-linux-x86_64.AppImage",
+    browser_download_url:
+      "https://github.com/wachtelhund/CursorBot/releases/download/v0.1.1/Cursor-Bots-0.1.1-linux-x86_64.AppImage",
+  },
+  {
+    name: "Cursor-Bots-0.1.1-mac-arm64.dmg.blockmap",
+    browser_download_url:
+      "https://github.com/wachtelhund/CursorBot/releases/download/v0.1.1/Cursor-Bots-0.1.1-mac-arm64.dmg.blockmap",
+  },
+  {
+    name: "source.zip",
+    browser_download_url: "https://github.com/wachtelhund/CursorBot/archive/refs/tags/v0.1.1.zip",
+  },
+];
+
+test("isAllowedInstallerUrl accepts only this repo's installer downloads", () => {
+  assert.equal(
+    isAllowedInstallerUrl(
+      "https://github.com/wachtelhund/CursorBot/releases/download/v0.1.1/Cursor-Bots-0.1.1-mac-arm64.dmg",
+    ),
+    true,
+  );
+  assert.equal(
+    isAllowedInstallerUrl(
+      "https://github.com/wachtelhund/CursorBot/releases/download/v0.1.1/Cursor-Bots-0.1.1-win-x64.exe",
+    ),
+    true,
+  );
+  assert.equal(
+    isAllowedInstallerUrl("https://github.com/wachtelhund/CursorBot/archive/refs/tags/v0.1.1.zip"),
+    false,
+  );
+  assert.equal(
+    isAllowedInstallerUrl(
+      "https://github.com/octocat/Hello-World/releases/download/v1.0.0/app.dmg",
+    ),
+    false,
+  );
+  assert.equal(isAllowedInstallerUrl("http://github.com/wachtelhund/CursorBot/releases/download/v1/x.dmg"), false);
+});
+
+test("pickInstallerUrl selects the artifact for this machine", () => {
+  const assets = parseReleaseAssets({ assets: v011Assets });
+  assert.equal(assets.length, 4);
+  assert.match(
+    pickInstallerUrl(assets, "darwin", "arm64") ?? "",
+    /mac-arm64\.dmg$/,
+  );
+  assert.match(pickInstallerUrl(assets, "darwin", "x64") ?? "", /mac-x64\.dmg$/);
+  assert.match(pickInstallerUrl(assets, "win32", "x64") ?? "", /win-x64\.exe$/);
+  assert.match(pickInstallerUrl(assets, "win32", "arm64") ?? "", /win-x64\.exe$/);
+  assert.match(pickInstallerUrl(assets, "linux", "x64") ?? "", /linux-x86_64\.AppImage$/);
+  assert.equal(pickInstallerUrl(assets, "sunos", "x64"), undefined);
+});
+
+test("parseLatestRelease attaches the installer download for this platform", () => {
+  const result = parseLatestRelease(
+    {
+      tag_name: "v0.1.1",
+      html_url: "https://github.com/wachtelhund/CursorBot/releases/tag/v0.1.1",
+      assets: v011Assets,
+    },
+    "0.1.0",
+    { platform: "darwin", arch: "arm64" },
+  );
+  assert.equal(result.available, true);
+  assert.equal(
+    result.downloadUrl,
+    "https://github.com/wachtelhund/CursorBot/releases/download/v0.1.1/Cursor-Bots-0.1.1-mac-arm64.dmg",
+  );
 });

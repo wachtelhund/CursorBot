@@ -18,7 +18,7 @@ import {
 import { releaseBotAgent } from "./cursor";
 import { applyGroupCommands, applySpawns, latestActiveId, postLog, wakeMany } from "./harness";
 import { openCloudAgent } from "./open-agent";
-import { fetchLatestUpdate } from "./updates";
+import { applyLatestUpdate, fetchLatestUpdate } from "./updates";
 import {
   createBot,
   createGroup,
@@ -47,6 +47,21 @@ import {
 export function registerIpc(): void {
   ipcMain.handle("settings:get", async () => getPublicSettings());
   ipcMain.handle("updates:check", async () => fetchLatestUpdate(app.getVersion()));
+  ipcMain.handle("updates:apply", async (event) => {
+    const sender = event.sender;
+    await applyLatestUpdate(app.getVersion(), {
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      arch: process.arch,
+      pid: process.pid,
+      execPath: process.execPath,
+      appImage: process.env.APPIMAGE,
+      quit: () => app.quit(),
+      onProgress: (progress) => {
+        if (!sender.isDestroyed()) sender.send("updates:progress", progress);
+      },
+    });
+  });
 
   ipcMain.handle("settings:saveApiKey", async (_event, apiKey: string) => {
     await saveApiKey(String(apiKey ?? ""));
