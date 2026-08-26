@@ -20,7 +20,7 @@ import { SettingsPanel } from "./settings-panel";
 import { Sidebar } from "./sidebar";
 import { Thread, type ThreadItem } from "./thread";
 import { t, useLang } from "./i18n";
-import { hopsFromLog, isInspectMessage, isRosterNotice } from "@shared/collapse";
+import { buildDmRows, isInspectMessage, isRosterNotice } from "@shared/collapse";
 import { publicBotText } from "@shared/mentions";
 import { sortBots } from "@shared/bots";
 
@@ -358,72 +358,34 @@ export function App() {
       );
     }
     if (!selected) return [];
-    const rows: ThreadItem[] = [];
-    for (const [index, message] of selected.messages.entries()) {
-      const fromPeer = Boolean(
-        message.source === "bot" && message.fromBotId && message.fromBotId !== selected.id,
-      );
-      const peer = fromPeer ? bots.find((bot) => bot.id === message.fromBotId) : undefined;
-      const isLast =
-        message.role === "assistant" && index === selected.messages.length - 1;
-      const inspect =
-        fromPeer ||
-        (message.role === "assistant" &&
-          isInspectMessage(
-            {
-              from: "bot",
-              content: message.content,
-              toBotIds: message.toBotIds,
-              botId: selected.id,
-            },
-            selected.messages.slice(0, index).map((item) => ({
-              from: item.role === "user" ? "user" : "bot",
-              content: item.content,
-              toBotIds: item.toBotIds,
-              botId: item.fromBotId && item.fromBotId !== selected.id ? item.fromBotId : selected.id,
-            })),
-          ));
-      const content =
-        message.role === "assistant" && !inspect
-          ? publicBotText(message.content)
-          : message.content;
-      if (message.role !== "user" && !inspect && !content.trim() && !(isLast && thinkingIds.includes(selected.id))) {
-        continue;
-      }
-      rows.push({
-        id: message.id,
-        author: fromPeer
-          ? ("bot" as const)
-          : message.role === "user"
-            ? ("user" as const)
-            : ("bot" as const),
-        name: fromPeer
-          ? (message.fromName ?? peer?.name ?? "Bot")
-          : message.role === "user"
+    return buildDmRows(selected.messages, {
+      speakerId: selected.id,
+      thinking: thinkingIds.includes(selected.id),
+      team,
+    }).map((row) => {
+      const peer = row.fromPeer ? bots.find((bot) => bot.id === row.fromBotId) : undefined;
+      const speaker =
+        row.role === "assistant"
+          ? (peer ?? (row.fromBotId ? bots.find((bot) => bot.id === row.fromBotId) : undefined) ?? selected)
+          : undefined;
+      return {
+        id: row.id,
+        author: row.role === "user" ? ("user" as const) : ("bot" as const),
+        name: row.fromPeer
+          ? (row.fromName ?? peer?.name ?? "Bot")
+          : row.role === "user"
             ? t("you")
             : selected.name,
-        bot: fromPeer ? peer : message.role === "assistant" ? selected : undefined,
-        content,
-        thinking: isLast && thinkingIds.includes(selected.id) && !content,
-        fromPeer,
-        handoff: inspect,
-        toBotIds: message.toBotIds,
-        createdAt: message.createdAt,
-        showName: fromPeer || inspect,
-      });
-      if (inspect || message.role !== "assistant") continue;
-      const nextUser = selected.messages.slice(index + 1).find((item) => item.role === "user");
-      for (const hop of hopsFromLog(team, {
-        speakerId: selected.id,
-        since: message.createdAt,
-        until: nextUser?.createdAt,
-      })) {
-        if (rows.some((row) => row.id === hop.id)) continue;
-        const item = toItem(hop, team);
-        if (item) rows.push({ ...item, handoff: true, showName: true });
-      }
-    }
-    return rows;
+        bot: speaker,
+        content: row.content,
+        thinking: row.thinking,
+        fromPeer: row.fromPeer,
+        handoff: row.inspect,
+        toBotIds: row.toBotIds,
+        createdAt: row.createdAt,
+        showName: row.fromPeer || row.inspect,
+      };
+    });
   }, [bots, isTeam, lang, liveByBot, selected, selectedGroup, team, thinkingIds]);
 
   async function createBot(form: FormData) {

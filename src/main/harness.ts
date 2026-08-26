@@ -449,8 +449,10 @@ async function runTurn(job: Wake): Promise<void> {
     const finalText = result.result || assistantText;
     const publicText = publicBotText(finalText);
     if (assistantId) {
+      // Keep the full reply in the DM store. The UI strips @Name: for
+      // klartext but still needs the hop so Messaged can render in this chat.
       await updateMessage(botId, assistantId, {
-        content: publicText,
+        content: finalText,
         runId: result.id,
       });
     }
@@ -464,7 +466,7 @@ async function runTurn(job: Wake): Promise<void> {
     emit(sender, {
       type: "done",
       botId,
-      result: publicText,
+      result: persistDm ? finalText : publicText,
       runId: result.id,
       status: result.status,
     });

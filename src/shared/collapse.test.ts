@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  buildDmRows,
   bundleHandoffs,
   handoffRecipientIds,
   hopsFromLog,
@@ -207,5 +208,141 @@ test("hopsFromLog returns the assignment and the target reply", () => {
   assert.deepEqual(
     hops.map((item) => item.id),
     ["a", "b"],
+  );
+});
+
+test("buildDmRows keeps a blank DM assistant inspectable via team hops", () => {
+  const rows = buildDmRows(
+    [
+      {
+        id: "u1",
+        role: "user",
+        content: "skriv till honom igen",
+        createdAt: "2026-08-26T09:29:00Z",
+      },
+      {
+        id: "a1",
+        role: "assistant",
+        content: "",
+        createdAt: "2026-08-26T09:29:01Z",
+      },
+    ],
+    {
+      speakerId: "chef",
+      thinking: false,
+      team: [
+        {
+          id: "hop-a",
+          from: "bot",
+          botId: "chef",
+          name: "Chefen",
+          content: "@Utvecklare: hej igen",
+          toBotIds: ["dev"],
+          source: "handoff",
+          createdAt: "2026-08-26T09:29:02Z",
+        },
+        {
+          id: "hop-b",
+          from: "bot",
+          botId: "dev",
+          name: "Utvecklare",
+          content: "Hej Chefen.",
+          source: "handoff",
+          createdAt: "2026-08-26T09:29:03Z",
+        },
+      ],
+    },
+  );
+  assert.deepEqual(
+    rows.map((row) => ({ id: row.id, inspect: row.inspect, fromPeer: row.fromPeer })),
+    [
+      { id: "u1", inspect: false, fromPeer: false },
+      { id: "hop-a", inspect: true, fromPeer: false },
+      { id: "hop-b", inspect: true, fromPeer: true },
+    ],
+  );
+});
+
+test("buildDmRows shows assignment-only DM text as inspect, not a klartext bubble", () => {
+  const rows = buildDmRows(
+    [
+      {
+        id: "u1",
+        role: "user",
+        content: "Hälsa på @Utvecklare",
+        createdAt: "2026-08-26T09:28:00Z",
+      },
+      {
+        id: "a1",
+        role: "assistant",
+        content: "@Utvecklare: hej från Chefen",
+        createdAt: "2026-08-26T09:28:01Z",
+      },
+    ],
+    {
+      speakerId: "chef",
+      thinking: false,
+      team: [
+        {
+          id: "hop-a",
+          from: "bot",
+          botId: "chef",
+          name: "Chefen",
+          content: "@Utvecklare: hej från Chefen",
+          toBotIds: ["dev"],
+          source: "handoff",
+          createdAt: "2026-08-26T09:28:02Z",
+        },
+      ],
+    },
+  );
+  assert.deepEqual(
+    rows.map((row) => ({ id: row.id, inspect: row.inspect, content: row.content })),
+    [
+      { id: "u1", inspect: false, content: "Hälsa på @Utvecklare" },
+      { id: "a1", inspect: true, content: "@Utvecklare: hej från Chefen" },
+    ],
+  );
+});
+
+test("buildDmRows keeps mixed public text as a bubble and still attaches hops", () => {
+  const rows = buildDmRows(
+    [
+      {
+        id: "u1",
+        role: "user",
+        content: "skickade du något då?",
+        createdAt: "2026-08-26T09:28:10Z",
+      },
+      {
+        id: "a1",
+        role: "assistant",
+        content: "Ja. Första turen gick hälsningen ut.\n@Utvecklare: hej från Chefen",
+        createdAt: "2026-08-26T09:28:11Z",
+      },
+    ],
+    {
+      speakerId: "chef",
+      thinking: false,
+      team: [
+        {
+          id: "hop-a",
+          from: "bot",
+          botId: "chef",
+          name: "Chefen",
+          content: "@Utvecklare: hej från Chefen",
+          toBotIds: ["dev"],
+          createdAt: "2026-08-26T09:28:12Z",
+        },
+      ],
+    },
+  );
+  assert.deepEqual(
+    rows.map((row) => ({ id: row.id, inspect: row.inspect, content: row.content })),
+    [
+      { id: "u1", inspect: false, content: "skickade du något då?" },
+      { id: "a1", inspect: false, content: "Ja. Första turen gick hälsningen ut." },
+      { id: "hop-a", inspect: true, content: "@Utvecklare: hej från Chefen" },
+    ],
   );
 });

@@ -11,6 +11,31 @@ export type InspectMessage = {
 export type LogHop = InspectMessage & {
   id: string;
   createdAt: string;
+  name?: string;
+};
+
+export type DmMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  source?: string;
+  fromBotId?: string;
+  fromName?: string;
+  toBotIds?: string[];
+};
+
+export type DmRow = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  inspect: boolean;
+  fromPeer: boolean;
+  fromBotId?: string;
+  fromName?: string;
+  toBotIds?: string[];
+  thinking?: boolean;
+  createdAt: string;
 };
 
 export type CollapseSegment<T> =
@@ -156,4 +181,96 @@ export function hopsFromLog<T extends LogHop>(
     hops.push(message);
   }
   return hops;
+}
+
+function sameAssignment(message: DmMessage, hop: LogHop, speakerId: string): boolean {
+  if (hop.botId !== speakerId) return false;
+  return hop.content.trim() === message.content.trim();
+}
+
+/** DM rows: human text as bubbles; @Name: hops stay inspectable in this window. */
+export function buildDmRows(
+  messages: DmMessage[],
+  input: { speakerId: string; thinking: boolean; team: LogHop[] },
+): DmRow[] {
+  const rows: DmRow[] = [];
+  const seen = new Set<string>();
+
+  const push = (row: DmRow) => {
+    if (seen.has(row.id)) return;
+    seen.add(row.id);
+    rows.push(row);
+  };
+
+  for (const [index, message] of messages.entries()) {
+    const fromPeer = Boolean(
+      message.source === "bot" && message.fromBotId && message.fromBotId !== input.speakerId,
+    );
+    const isLast = message.role === "assistant" && index === messages.length - 1;
+    const inspect =
+      fromPeer ||
+      (message.role === "assistant" &&
+        isInspectMessage(
+          {
+            from: "bot",
+            content: message.content,
+            toBotIds: message.toBotIds,
+            botId: input.speakerId,
+          },
+          messages.slice(0, index).map((item) => ({
+            from: item.role === "user" ? "user" : "bot",
+            content: item.content,
+            toBotIds: item.toBotIds,
+            botId:
+              item.fromBotId && item.fromBotId !== input.speakerId
+                ? item.fromBotId
+                : input.speakerId,
+          })),
+        ));
+    const content =
+      message.role === "assistant" && !inspect
+        ? publicBotText(message.content)
+        : message.content;
+    const thinking = Boolean(isLast && input.thinking && !content.trim());
+    const hide = message.role !== "user" && !inspect && !content.trim() && !thinking;
+
+    if (!hide) {
+      push({
+        id: message.id,
+        role: message.role,
+        content,
+        inspect,
+        fromPeer,
+        fromBotId: fromPeer ? message.fromBotId : undefined,
+        fromName: message.fromName,
+        toBotIds: message.toBotIds,
+        thinking,
+        createdAt: message.createdAt,
+      });
+    }
+
+    if (message.role !== "assistant") continue;
+    const nextUser = messages.slice(index + 1).find((item) => item.role === "user");
+    for (const hop of hopsFromLog(input.team, {
+      speakerId: input.speakerId,
+      since: message.createdAt,
+      until: nextUser?.createdAt,
+    })) {
+      if (isRosterNotice(hop.content) || hop.source === "system") continue;
+      if (sameAssignment(message, hop, input.speakerId)) continue;
+      push({
+        id: hop.id,
+        role: "assistant",
+        content: hop.content,
+        inspect: true,
+        fromPeer: Boolean(hop.botId && hop.botId !== input.speakerId),
+        fromBotId: hop.botId,
+        fromName: hop.name,
+        toBotIds: hop.toBotIds,
+        createdAt: hop.createdAt,
+      });
+    }
+  }
+
+  return rows;
 }
