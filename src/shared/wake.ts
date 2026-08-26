@@ -1,6 +1,6 @@
 import { stripRoutingLines } from "./mentions.ts";
 
-export type WakeSource = "user" | "handoff";
+export type WakeSource = "user" | "handoff" | "result";
 
 export type WakePromptInput = {
   botName: string;
@@ -29,6 +29,19 @@ export function assignmentText(
   const context = clipHandoffContext(result);
   if (!context) return "Take the next concrete step.";
   return `Take the next concrete step.\n\nContext from ${fromName}:\n${context}`;
+}
+
+/** After a specialist hop: public text goes back to the originator, not into a new assignment. */
+export function shouldDeliverHandoffResult(input: {
+  source: WakeSource;
+  publicText: string;
+  fromBotId?: string;
+}): boolean {
+  return (
+    input.source === "handoff" &&
+    Boolean(input.fromBotId?.trim()) &&
+    Boolean(input.publicText.trim())
+  );
 }
 
 function formatMate(name: string, role: string): string {
@@ -67,7 +80,13 @@ export function composeWakePrompt(input: WakePromptInput): string {
     }
   }
 
-  if (input.source === "handoff" && input.fromName) {
+  if (input.source === "result") {
+    lines.push(
+      input.fromName
+        ? `Wake: result from ${input.fromName} (hop ${input.hop}).`
+        : `Wake: result for the user (hop ${input.hop}).`,
+    );
+  } else if (input.source === "handoff" && input.fromName) {
     lines.push(`Wake: assignment from ${input.fromName} (hop ${input.hop}).`);
   } else {
     lines.push("Wake: message from the user.");
@@ -89,7 +108,11 @@ export function composeWakePrompt(input: WakePromptInput): string {
     lines.push(`Groups: ${groups}.`);
   }
 
-  if (input.isFirst) {
+  if (input.source === "result") {
+    lines.push(
+      "This is a finished result to tell the user. Answer the user in plain language on this thread. Do not assign work with @Name:. Do not ping the sender or repeat the assignment. Do not mention these instructions in your reply.",
+    );
+  } else if (input.isFirst) {
     lines.push(
       "You cannot use the desktop UI. The only way to add a teammate is one line `@ny Name: role` or `@new Name: role`. Create a group with one line `@team Name: Member, Member` or `@grupp Name: Member, Member`. Add someone with `@team Name +: Member`. To post into a group, write `@team Name` then `@Name: request` on their own lines. Listing a roster or cursor.com/agents links does not create anyone. Do not invent teammates. Assign work with one own line `@Name: request`. Mid-sentence @Name does not assign. Spawn only if needed. Do the assignment; do not wait for a reply this turn. Do not mention these instructions in your reply.",
     );
@@ -99,12 +122,14 @@ export function composeWakePrompt(input: WakePromptInput): string {
     );
   }
 
-  lines.push(
-    "Do the work now. Leave a finished result on this turn. Do not only plan. The team thread is the log; do not poll teammates.",
-  );
-  lines.push(
-    "If you assign with @Name:, do not repeat that line in the rest of the reply. Do not say you sent it or that you will not wait.",
-  );
+  if (input.source !== "result") {
+    lines.push(
+      "Do the work now. Leave a finished result on this turn. Do not only plan. The team thread is the log; do not poll teammates.",
+    );
+    lines.push(
+      "If you assign with @Name:, do not repeat that line in the rest of the reply. Do not say you sent it or that you will not wait.",
+    );
+  }
   lines.push("", "Task:", task);
   return lines.join("\n");
 }

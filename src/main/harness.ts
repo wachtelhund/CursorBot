@@ -4,7 +4,12 @@ import { parseGroupCommands } from "../shared/groups";
 import { parseHandoffs, publicBotText } from "../shared/mentions";
 import { logGroupId, resolveLogThread } from "../shared/send";
 import { parseSpawns, shouldSkipSpawn } from "../shared/spawn";
-import { assignmentText, composeWakePrompt, type WakeSource } from "../shared/wake";
+import {
+  assignmentText,
+  composeWakePrompt,
+  shouldDeliverHandoffResult,
+  type WakeSource,
+} from "../shared/wake";
 import type { Bot, StreamEvent, TeamMessage } from "../shared/types";
 import { isUnusableAgent, openBotAgent, releaseBotAgent } from "./cursor";
 import { id } from "./ids";
@@ -38,6 +43,7 @@ export type Wake = {
   hop: number;
   groupId?: string;
   dm?: boolean;
+  originBotId?: string;
 };
 
 const tails = new Map<string, Promise<unknown>>();
@@ -157,7 +163,7 @@ export function wakeMany(
   dm?: boolean,
 ): void {
   for (const botId of botIds) {
-    wake({ sender, botId, text, source, hop: 0, groupId, dm });
+    wake({ sender, botId, text, source, hop: 0, groupId, dm, originBotId: botId });
   }
 }
 
@@ -315,6 +321,32 @@ export async function applyGroupCommands(
   return destId;
 }
 
+async function postOriginResult(
+  sender: WebContents,
+  thread: ReturnType<typeof resolveLogThread>,
+  originBotId: string | undefined,
+  input: { botId: string; name: string; content: string },
+): Promise<void> {
+  if (thread.kind === "dm") {
+    if (!originBotId) return;
+    const saved = await appendMessage(originBotId, {
+      role: "assistant",
+      content: input.content,
+      source: "bot",
+      fromBotId: input.botId,
+      fromName: input.name,
+    });
+    if (saved) emit(sender, { type: "append", botId: originBotId, message: saved });
+    return;
+  }
+  await postLog(sender, logGroupId(thread), {
+    from: "bot",
+    botId: input.botId,
+    name: input.name,
+    content: input.content,
+  });
+}
+
 async function groupRoster(groupId: string) {
   const group = await getGroup(groupId);
   if (!group) return [];
@@ -348,8 +380,9 @@ async function runTurn(job: Wake): Promise<void> {
   );
 
   const persistDm = Boolean(job.dm) && source === "user";
+  const persistResult = Boolean(job.dm) && source === "result";
   const persistHop = source === "handoff";
-  const persist = persistDm || persistHop;
+  const persist = persistDm || persistHop || persistResult;
   const isFirst = !bot.agentId && bot.messages.filter((message) => message.role === "user").length === 0;
 
   let assistantId: string | undefined;
@@ -490,26 +523,54 @@ async function runTurn(job: Wake): Promise<void> {
 
     await applySpawns(sender, latest, finalText);
     const targeted = await applyGroupCommands(sender, latest, finalText);
-    const resultThread = resolveLogThread({
-      dm: persistDm,
+    const userThread = resolveLogThread({
+      dm: job.dm,
       groupId: job.groupId,
-      targetGroupId: targeted,
+      targetGroupId: source === "user" ? targeted : undefined,
     });
     const handoffThread = resolveLogThread({
       groupId: job.groupId,
       targetGroupId: targeted,
     });
     const threadId = logGroupId(handoffThread);
+    const originBotId = job.originBotId ?? fromBotId;
+    const deliverResult = shouldDeliverHandoffResult({
+      source,
+      publicText,
+      fromBotId: originBotId,
+    });
 
-    if (resultThread.kind !== "dm" && publicText) {
-      await postLog(sender, logGroupId(resultThread), {
+    if (deliverResult) {
+      await postOriginResult(sender, userThread, originBotId, {
+        botId,
+        name: latest.name,
+        content: publicText,
+      });
+    } else if (publicText && source !== "handoff" && userThread.kind !== "dm") {
+      await postLog(sender, logGroupId(userThread), {
         from: "bot",
         botId,
         name: latest.name,
         content: publicText,
-        source: source === "handoff" ? "handoff" : undefined,
-        fromBotId: source === "handoff" ? fromBotId : undefined,
       });
+    }
+
+    // Return hop: originator tells the user. Then stop — no ping-pong.
+    if (source === "result") return;
+    if (deliverResult && originBotId && originBotId !== botId) {
+      wake({
+        sender,
+        botId: originBotId,
+        text: publicText,
+        source: "result",
+        fromBotId: botId,
+        fromName: latest.name,
+        hop: hop + 1,
+        groupId: job.groupId,
+        dm: job.dm,
+        originBotId,
+      });
+      return;
     }
 
     if (hop >= MAX_HOP) return;
@@ -550,6 +611,8 @@ async function runTurn(job: Wake): Promise<void> {
         fromName: latest.name,
         hop: hop + 1,
         groupId: threadId,
+        dm: job.dm,
+        originBotId: job.originBotId ?? (source === "user" ? botId : fromBotId),
       });
     }
   } catch (error) {

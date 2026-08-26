@@ -23,8 +23,8 @@ Bots do not share Cloud Agent memory. The app is the bus (same idea as Paperclip
 - Named groups persist in `store.json` (`id`, `name`, `botIds`, `messages`). Team is everyone; a group is a subset with its own thread. Unique names, case-insensitive.
 - `@team Name: Member, Member` / `@grupp Name: Member, Member` creates a group. `@team Name +: Member` adds people. `@team Name` plus `@Writer: do X` posts the result and assignment on that group thread. Name conflict is reported on Team, not thrown.
 - Sending in a group wakes `@Name:` assignments among members; no mention → most recently active member.
-- No automatic reply-to-sender loop. Leave the result on the current thread (Team or the group).
-- User-facing threads (Team, group, bot DM) show only text addressed to the human. `@Name:` hops, handoff replies, and roster echoes stay behind a compact Messaged row (inspect), never as default bubbles.
+- Leave the `@Name:` assignment on the bus (Team / group / inspect). When a hop finishes with public text, deliver that result onto the user thread the human is in (originator relays, or the result is posted there immediately). One return hop to the originator, then stop — do not ping-pong.
+- User-facing threads (Team, group, bot DM) show klartext — text meant for the human — as normal bubbles. `@Name:` assignment lines, raw hops, and roster echoes stay behind a compact Messaged row (inspect). A finished public result must not live only in inspect.
 - Shared tokens are env vars on every `Agent.create` / `agent.send`. Names must not start with `CURSOR_`.
 - GitHub / AWS / Cloudflare logins stay in Cursor Integrations + MCP.
 

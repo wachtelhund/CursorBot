@@ -130,8 +130,12 @@ export function isInspectMessage(
   previous: InspectMessage[] = [],
 ): boolean {
   if (message.from === "user") return false;
-  if (message.source === "handoff" || message.source === "system") return true;
+  if (message.source === "system") return true;
   if (isRosterNotice(message.content)) return true;
+  if (isAssignmentPing(message.content)) return true;
+  // Klartext is for the human — even after a hop or with source:handoff.
+  if (isUserFacingBotText(message.content)) return false;
+  if (message.source === "handoff") return true;
   if (isHandoffMessage(message)) return true;
   for (let index = previous.length - 1; index >= 0; index -= 1) {
     const prev = previous[index];
@@ -263,11 +267,18 @@ export function dmActivityAt(
 }
 
 function hopToRow(hop: LogHop, speakerId: string): DmRow {
+  const inspect = isInspectMessage({
+    from: hop.from,
+    content: hop.content,
+    toBotIds: hop.toBotIds,
+    source: hop.source,
+    botId: hop.botId,
+  });
   return {
     id: hop.id,
     role: "assistant",
-    content: hop.content,
-    inspect: true,
+    content: inspect ? hop.content : publicBotText(hop.content) || hop.content,
+    inspect,
     fromPeer: Boolean(hop.botId && hop.botId !== speakerId),
     fromBotId: hop.botId,
     fromName: hop.name,
@@ -298,28 +309,26 @@ export function buildDmRows(
     );
     const isLast = message.role === "assistant" && index === messages.length - 1;
     const inspect =
-      fromPeer ||
-      message.source === "handoff" ||
-      (message.role === "assistant" &&
-        isInspectMessage(
-          {
-            from: "bot",
-            content: message.content,
-            toBotIds: message.toBotIds,
-            source: message.source,
-            botId: input.speakerId,
-          },
-          messages.slice(0, index).map((item) => ({
-            from: item.role === "user" ? "user" : "bot",
-            content: item.content,
-            toBotIds: item.toBotIds,
-            source: item.source,
-            botId:
-              item.fromBotId && item.fromBotId !== input.speakerId
-                ? item.fromBotId
-                : input.speakerId,
-          })),
-        ));
+      message.role === "assistant" &&
+      isInspectMessage(
+        {
+          from: "bot",
+          content: message.content,
+          toBotIds: message.toBotIds,
+          source: message.source,
+          botId: fromPeer ? message.fromBotId : input.speakerId,
+        },
+        messages.slice(0, index).map((item) => ({
+          from: item.role === "user" ? "user" : "bot",
+          content: item.content,
+          toBotIds: item.toBotIds,
+          source: item.source,
+          botId:
+            item.fromBotId && item.fromBotId !== input.speakerId
+              ? item.fromBotId
+              : input.speakerId,
+        })),
+      );
     const content =
       message.role === "assistant" && !inspect
         ? publicBotText(message.content)

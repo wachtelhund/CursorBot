@@ -176,7 +176,7 @@ export function Thread({
     ? bundleHandoffs(
         items,
         (item) => item.author === "user",
-        (item) => Boolean(item.handoff || item.fromPeer),
+        (item) => Boolean(item.handoff),
       )
     : items.map((item) => ({ kind: "item" as const, item }));
 

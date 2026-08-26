@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { assignmentText, composeWakePrompt } from "./wake.ts";
+import { assignmentText, composeWakePrompt, shouldDeliverHandoffResult } from "./wake.ts";
 
 const base = {
   botName: "Chief",
@@ -106,6 +106,66 @@ test("composeWakePrompt tells a solo bot not to invent teammates", () => {
   assert.match(prompt, /App roster \(only these exist\)/);
   assert.match(prompt, /You are the only bot\. Do not invent teammates\./);
   assert.equal(prompt.includes("@Writer"), false);
+});
+
+test("shouldDeliverHandoffResult is only after a specialist hop with public text", () => {
+  assert.equal(
+    shouldDeliverHandoffResult({
+      source: "handoff",
+      publicText: "Oförändrat 26 aug.",
+      fromBotId: "chief",
+    }),
+    true,
+  );
+  assert.equal(
+    shouldDeliverHandoffResult({
+      source: "user",
+      publicText: "Oförändrat 26 aug.",
+      fromBotId: "chief",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldDeliverHandoffResult({
+      source: "result",
+      publicText: "Oförändrat 26 aug.",
+      fromBotId: "chief",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldDeliverHandoffResult({
+      source: "handoff",
+      publicText: "",
+      fromBotId: "chief",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldDeliverHandoffResult({
+      source: "handoff",
+      publicText: "Oförändrat 26 aug.",
+    }),
+    false,
+  );
+});
+
+test("composeWakePrompt tells the originator to answer the user, not assign again", () => {
+  const prompt = composeWakePrompt({
+    ...base,
+    isFirst: false,
+    source: "result",
+    fromName: "Ediel Expert",
+    hop: 2,
+    text: "Oförändrat 26 aug, inkorgen just kollad.",
+  });
+  assert.match(prompt, /Wake: result from Ediel Expert \(hop 2\)/);
+  assert.match(prompt, /finished result to tell the user/);
+  assert.match(prompt, /Do not assign work with @Name:/);
+  assert.match(prompt, /Do not ping the sender/);
+  assert.equal(prompt.includes("Wake: assignment from"), false);
+  assert.equal(prompt.includes("own line `@Name: request`"), false);
+  assert.ok(prompt.endsWith("Task:\nOförändrat 26 aug, inkorgen just kollad."));
 });
 
 test("assignmentText is the request only when the body is set", () => {

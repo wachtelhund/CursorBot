@@ -153,14 +153,14 @@ test("isRosterNotice matches spawn and group echoes only", () => {
   assert.equal(isRosterNotice("Jag skapade en plan för releasen."), false);
 });
 
-test("isInspectMessage hides assignments, handoff replies, and roster echoes", () => {
+test("isInspectMessage hides assignments, roster echoes, and empty hops", () => {
   assert.equal(isInspectMessage({ from: "user", content: "@Apptestare: kolla" }), false);
   assert.equal(
     isInspectMessage({ from: "bot", content: "@Apptestare: stå upp", toBotIds: ["qa"] }),
     true,
   );
   assert.equal(
-    isInspectMessage({ from: "bot", content: "Hej Chefen, Apptestare här.", source: "handoff" }),
+    isInspectMessage({ from: "bot", content: "@Apptestare: stå upp", source: "handoff" }),
     true,
   );
   assert.equal(isInspectMessage({ from: "bot", content: "Chefen skapade App" }), true);
@@ -170,7 +170,16 @@ test("isInspectMessage hides assignments, handoff replies, and roster echoes", (
   );
 });
 
-test("isInspectMessage treats a reply after @Name: as inspect, not a user bubble", () => {
+test("isInspectMessage shows a public hop result as klartext, not inspect", () => {
+  assert.equal(
+    isInspectMessage({
+      from: "bot",
+      botId: "ediel",
+      content: "Oförändrat 26 aug, inkorgen just kollad.",
+      source: "handoff",
+    }),
+    false,
+  );
   const previous = [
     { from: "bot", botId: "chef", content: "Jag tar QA.", toBotIds: undefined },
     { from: "bot", botId: "chef", content: "@Apptestare: stå upp", toBotIds: ["qa"] },
@@ -180,7 +189,7 @@ test("isInspectMessage treats a reply after @Name: as inspect, not a user bubble
       { from: "bot", botId: "qa", content: "Hej Chefen, Apptestare här." },
       previous,
     ),
-    true,
+    false,
   );
   assert.equal(
     isInspectMessage({ from: "bot", botId: "chef", content: "Klart för dig." }, [
@@ -273,7 +282,79 @@ test("buildDmRows keeps a blank DM assistant inspectable via team hops", () => {
     [
       { id: "u1", inspect: false, fromPeer: false },
       { id: "hop-a", inspect: true, fromPeer: false },
-      { id: "hop-b", inspect: true, fromPeer: true },
+      { id: "hop-b", inspect: false, fromPeer: true },
+    ],
+  );
+});
+
+test("buildDmRows shows a public hop result as a bubble in the originator DM", () => {
+  const rows = buildDmRows(
+    [
+      {
+        id: "u1",
+        role: "user",
+        content: "fråga @Ediel Expert vad senaste status är",
+        createdAt: "2026-08-26T10:00:00Z",
+      },
+      {
+        id: "a1",
+        role: "assistant",
+        content: "@Ediel Expert: Vad är senaste status?",
+        createdAt: "2026-08-26T10:00:01Z",
+      },
+      {
+        id: "r1",
+        role: "assistant",
+        content: "Oförändrat 26 aug, inkorgen just kollad.",
+        source: "bot",
+        fromBotId: "ediel",
+        fromName: "Ediel Expert",
+        createdAt: "2026-08-26T10:00:03Z",
+      },
+    ],
+    {
+      speakerId: "chef",
+      thinking: false,
+      team: [
+        {
+          id: "hop-a",
+          from: "bot",
+          botId: "chef",
+          name: "Chief",
+          content: "@Ediel Expert: Vad är senaste status?",
+          toBotIds: ["ediel"],
+          source: "handoff",
+          createdAt: "2026-08-26T10:00:02Z",
+        },
+      ],
+    },
+  );
+  assert.deepEqual(
+    rows.map((row) => ({
+      id: row.id,
+      inspect: row.inspect,
+      fromPeer: row.fromPeer,
+      content: row.content,
+    })),
+    [
+      {
+        id: "u1",
+        inspect: false,
+        fromPeer: false,
+        content: "fråga @Ediel Expert vad senaste status är",
+      },
+      {
+        id: "a1",
+        inspect: true,
+        fromPeer: false,
+        content: "@Ediel Expert: Vad är senaste status?",
+      },
+      {
+        id: "r1",
+        inspect: false,
+        fromPeer: true,
+        content: "Oförändrat 26 aug, inkorgen just kollad.",
+      },
     ],
   );
 });
@@ -407,7 +488,7 @@ test("buildDmRows shows hops on an empty target DM as inspect, not user bubbles"
     })),
     [
       { id: "hop-a", inspect: true, fromPeer: true, role: "assistant" },
-      { id: "hop-b", inspect: true, fromPeer: false, role: "assistant" },
+      { id: "hop-b", inspect: false, fromPeer: false, role: "assistant" },
     ],
   );
 });
@@ -440,7 +521,7 @@ test("buildDmRows renders persisted target hops as inspect from the peer", () =>
     rows.map((row) => ({ id: row.id, inspect: row.inspect, fromPeer: row.fromPeer })),
     [
       { id: "in", inspect: true, fromPeer: true },
-      { id: "out", inspect: true, fromPeer: false },
+      { id: "out", inspect: false, fromPeer: false },
     ],
   );
 });
