@@ -20,7 +20,8 @@
     "electron.vite.config.ts",
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
-    "src/shared/**/*.ts"
+    "src/shared/**/*.ts",
+    "src/mcp/**/*.ts"
   ],
-  "exclude": ["src/shared/**/*.test.ts"]
+  "exclude": ["src/shared/**/*.test.ts", "src/mcp/**/*.test.ts"]
 }

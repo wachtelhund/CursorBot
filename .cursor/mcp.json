@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "cursor-bots": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "--experimental-strip-types",
+        "/Users/hampusnilsson/repos/cursor-bots/src/mcp/server.ts"
+      ]
+    }
+  }
+}

@@ -14,7 +14,8 @@
     "preview": "env -u ELECTRON_RUN_AS_NODE electron-vite preview",
     "dist": "electron-vite build && env -u ELECTRON_RUN_AS_NODE electron-builder",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "node --experimental-strip-types --test src/shared/*.test.ts",
+    "test": "node --experimental-strip-types --test src/shared/*.test.ts src/mcp/*.test.ts",
+    "mcp": "node --experimental-strip-types src/mcp/server.ts",
     "dev:debug": "env -u ELECTRON_RUN_AS_NODE electron-vite dev -- --remote-debugging-port=9223"
   },
   "dependencies": {
