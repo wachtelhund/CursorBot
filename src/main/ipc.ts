@@ -1,5 +1,5 @@
 import { Agent, Cursor } from "@cursor/sdk";
-import { ipcMain } from "electron";
+import { app, ipcMain } from "electron";
 import { parseGroupCommands } from "../shared/groups";
 import { parseHandoffs } from "../shared/mentions";
 import { parseSendPayload, resolveSendTargets } from "../shared/send";
@@ -14,6 +14,7 @@ import {
 import { releaseBotAgent } from "./cursor";
 import { applyGroupCommands, applySpawns, latestActiveId, postLog, wakeMany } from "./harness";
 import { openCloudAgent } from "./open-agent";
+import { fetchLatestUpdate } from "./updates";
 import {
   createBot,
   createGroup,
@@ -41,6 +42,7 @@ import {
 
 export function registerIpc(): void {
   ipcMain.handle("settings:get", async () => getPublicSettings());
+  ipcMain.handle("updates:check", async () => fetchLatestUpdate(app.getVersion()));
 
   ipcMain.handle("settings:saveApiKey", async (_event, apiKey: string) => {
     await saveApiKey(String(apiKey ?? ""));

@@ -1,15 +1,20 @@
 import { useState } from "react";
 import type { AppSettings, SecretName } from "@shared/types";
+import type { UpdateCheckResult } from "@shared/updates";
 import { t, useLang } from "./i18n";
 import { CrossIcon } from "./icons";
+
+type CheckStatus = "idle" | "checking" | "current" | "available" | "error";
 
 type SettingsPanelProps = {
   hasApiKey: boolean | null;
   secrets: SecretName[];
   apiKeyDraft: string;
+  appVersion?: string;
   onApiKeyDraft: (value: string) => void;
   onSaveKey: () => Promise<void>;
   onSettings: (settings: AppSettings) => void;
+  onUpdateResult: (result: UpdateCheckResult) => void;
   onClose: () => void;
 };
 
@@ -17,9 +22,11 @@ export function SettingsPanel({
   hasApiKey,
   secrets,
   apiKeyDraft,
+  appVersion,
   onApiKeyDraft,
   onSaveKey,
   onSettings,
+  onUpdateResult,
   onClose,
 }: SettingsPanelProps) {
   const { lang, setLang } = useLang();
@@ -27,6 +34,9 @@ export function SettingsPanel({
   const [secretValue, setSecretValue] = useState("");
   const [secretError, setSecretError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [checkStatus, setCheckStatus] = useState<CheckStatus>("idle");
+  const [checkResult, setCheckResult] = useState<UpdateCheckResult | null>(null);
+  const [checkError, setCheckError] = useState<string | null>(null);
 
   async function saveSecret() {
     setSecretError(null);
@@ -44,6 +54,29 @@ export function SettingsPanel({
     } finally {
       setBusy(false);
     }
+  }
+
+  async function checkForUpdates() {
+    if (typeof window.cursorBots.checkForUpdates !== "function") {
+      setCheckStatus("error");
+      setCheckError(t("restartAppWindow"));
+      return;
+    }
+    setCheckStatus("checking");
+    setCheckError(null);
+    try {
+      const result = await window.cursorBots.checkForUpdates();
+      setCheckResult(result);
+      setCheckStatus(result.available ? "available" : "current");
+      onUpdateResult(result);
+    } catch {
+      setCheckStatus("error");
+      setCheckError(t("updateCheckFailed"));
+    }
+  }
+
+  async function openRelease(url: string) {
+    await window.cursorBots.openExternal(url);
   }
 
   async function removeSecret(name: string) {
@@ -99,6 +132,59 @@ export function SettingsPanel({
               SV
             </button>
           </div>
+        </div>
+
+        <div className="mt-6 border-t border-line pt-5">
+          <h3 className="text-[13px] font-medium text-ink">{t("updates")}</h3>
+          {appVersion && (
+            <p className="mt-1 text-[13px] text-mute">
+              {t("currentVersion", { version: appVersion })}
+            </p>
+          )}
+          {checkStatus === "current" && checkResult && (
+            <p className="mt-2 text-[13px] text-ink">
+              {t("upToDate", { version: checkResult.currentVersion })}
+            </p>
+          )}
+          {checkStatus === "available" && checkResult?.available && (
+            <div className="mt-2">
+              <p className="text-[13px] text-ink">
+                {t("updateAvailable", { version: checkResult.version })}
+              </p>
+              {checkResult.notes && (
+                <p className="mt-2 max-h-20 overflow-y-auto whitespace-pre-wrap text-[12px] text-mute">
+                  {checkResult.notes}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void openRelease(checkResult.url)}
+                  className="rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-white"
+                >
+                  {t("updateTo", { version: checkResult.version })}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void openRelease(checkResult.url)}
+                  className="rounded-full px-3 py-1.5 text-sm text-mute hover:text-ink"
+                >
+                  {t("openRelease")}
+                </button>
+              </div>
+            </div>
+          )}
+          {checkStatus === "error" && checkError && (
+            <p className="mt-2 text-[12px] text-danger">{checkError}</p>
+          )}
+          <button
+            type="button"
+            disabled={checkStatus === "checking"}
+            onClick={() => void checkForUpdates()}
+            className="mt-3 rounded-full bg-white px-4 py-1.5 text-sm font-medium text-black disabled:opacity-30"
+          >
+            {checkStatus === "checking" ? t("checkingForUpdates") : t("checkForUpdates")}
+          </button>
         </div>
 
         <form

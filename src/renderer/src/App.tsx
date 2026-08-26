@@ -23,6 +23,7 @@ import { t, useLang } from "./i18n";
 import { buildDmRows, isInspectMessage, isRosterNotice } from "@shared/collapse";
 import { publicBotText } from "@shared/mentions";
 import { sortBots } from "@shared/bots";
+import { LATEST_RELEASE_PAGE, type UpdateAvailable, type UpdateCheckResult } from "@shared/updates";
 
 const DEFAULT_MODEL = "composer-2.5";
 
@@ -48,6 +49,8 @@ export function App() {
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [createGroupError, setCreateGroupError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | undefined>();
+  const [availableUpdate, setAvailableUpdate] = useState<UpdateAvailable | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
   const [editingBotId, setEditingBotId] = useState<string | null>(null);
@@ -111,6 +114,7 @@ export function App() {
         if (!cancelled) {
           setHasApiKey(settings.hasApiKey);
           setSecrets(settings.secrets ?? []);
+          setAppVersion(settings.appVersion);
         }
         await load();
         if (settings.hasApiKey) {
@@ -129,6 +133,22 @@ export function App() {
       cancelled = true;
     };
   }, [load]);
+
+  useEffect(() => {
+    if (typeof window.cursorBots.checkForUpdates !== "function") return;
+    let cancelled = false;
+    void window.cursorBots
+      .checkForUpdates()
+      .then((result) => {
+        if (!cancelled && result.available) setAvailableUpdate(result);
+      })
+      .catch(() => {
+        // Startup check is silent. Settings shows errors.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     return window.cursorBots.onEvent((event) => {
@@ -482,6 +502,14 @@ export function App() {
     return raw.includes("is not a function");
   }
 
+  function applyUpdateResult(result: UpdateCheckResult) {
+    setAvailableUpdate(result.available ? result : null);
+  }
+
+  function openUpdate(url?: string) {
+    void window.cursorBots.openExternal(url || LATEST_RELEASE_PAGE);
+  }
+
   function selectChat(id: string) {
     setEditingBotId(null);
     setEditingGroupId(null);
@@ -647,12 +675,27 @@ export function App() {
           void window.cursorBots.getSettings().then((settings) => {
             setHasApiKey(settings.hasApiKey);
             setSecrets(settings.secrets ?? []);
+            setAppVersion(settings.appVersion);
           });
         }}
       />
 
       <main className="flex min-w-0 flex-1 flex-col bg-surface">
         <div className="app-drag h-11 shrink-0" />
+        {availableUpdate && (
+          <div className="flex items-center justify-between gap-3 bg-accent/15 px-5 py-2.5">
+            <p className="min-w-0 text-[13px] text-ink">
+              {t("updateAvailable", { version: availableUpdate.version })}
+            </p>
+            <button
+              type="button"
+              onClick={() => openUpdate(availableUpdate.url)}
+              className="app-no-drag shrink-0 rounded-full bg-accent px-3 py-1.5 text-[13px] font-medium text-white"
+            >
+              {t("updateTo", { version: availableUpdate.version })}
+            </button>
+          </div>
+        )}
         {hasApiKey === false && (
           <div className="mx-5 mb-2 rounded-2xl bg-wait/10 px-4 py-3 text-[13px] text-wait">
             {t("pasteApiKey")}{" "}
@@ -718,6 +761,15 @@ export function App() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
+                {availableUpdate && (
+                  <button
+                    type="button"
+                    onClick={() => openUpdate(availableUpdate.url)}
+                    className="rounded-full bg-accent px-3 py-1.5 text-[12px] font-medium text-white"
+                  >
+                    {t("updateTo", { version: availableUpdate.version })}
+                  </button>
+                )}
                 {selected?.agentId && (
                   <button
                     type="button"
@@ -882,12 +934,15 @@ export function App() {
           hasApiKey={hasApiKey}
           secrets={secrets}
           apiKeyDraft={apiKeyDraft}
+          appVersion={appVersion}
           onApiKeyDraft={setApiKeyDraft}
           onSaveKey={saveKey}
           onSettings={(settings) => {
             setHasApiKey(settings.hasApiKey);
             setSecrets(settings.secrets ?? []);
+            setAppVersion(settings.appVersion);
           }}
+          onUpdateResult={applyUpdateResult}
           onClose={() => setSettingsOpen(false)}
         />
       )}

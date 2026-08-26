@@ -13,6 +13,7 @@ import type {
   UpsertSecretInput,
   UsagePayload,
 } from "./types";
+import type { UpdateCheckResult } from "./updates";
 
 export type CursorBotsApi = {
   listBots: () => Promise<Bot[]>;
@@ -36,5 +37,6 @@ export type CursorBotsApi = {
   upsertSecret: (input: UpsertSecretInput) => Promise<AppSettings>;
   deleteSecret: (name: string) => Promise<AppSettings>;
   openExternal: (url: string) => Promise<void>;
+  checkForUpdates?: () => Promise<UpdateCheckResult>;
   onEvent: (handler: (event: StreamEvent) => void) => () => void;
 };

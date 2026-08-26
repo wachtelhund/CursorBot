@@ -107,6 +107,7 @@ export async function getPublicSettings(): Promise<AppSettings> {
   return {
     hasApiKey: await hasApiKey(),
     secrets: (await listSecretNames()).map((name) => ({ name })),
+    appVersion: app.getVersion(),
   };
 }
 

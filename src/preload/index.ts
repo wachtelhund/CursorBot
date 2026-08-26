@@ -14,6 +14,7 @@ import type {
   UpsertSecretInput,
   UsagePayload,
 } from "../shared/types";
+import type { UpdateCheckResult } from "../shared/updates";
 
 const api = {
   listBots: (): Promise<Bot[]> => ipcRenderer.invoke("bots:list"),
@@ -60,6 +61,8 @@ const api = {
     ipcRenderer.invoke("settings:deleteSecret", name),
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke("shell:open", url),
+  checkForUpdates: (): Promise<UpdateCheckResult> =>
+    ipcRenderer.invoke("updates:check"),
   onEvent: (handler: (event: StreamEvent) => void): (() => void) => {
     const listener = (_event: unknown, data: StreamEvent) => handler(data);
     ipcRenderer.on("bots:event", listener);

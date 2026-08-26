@@ -138,6 +138,7 @@ export type SecretName = {
 export type AppSettings = {
   hasApiKey: boolean;
   secrets: SecretName[];
+  appVersion?: string;
 };
 
 export type UpsertSecretInput = {
