@@ -15,7 +15,7 @@ Sidofält, teamchatt och pixel-art-avatarer:
 Installerbara byggen: [github.com/wachtelhund/CursorBot/releases](https://github.com/wachtelhund/CursorBot/releases).
 
 - **macOS (Apple silicon):** `Cursor-Bots-*-mac-arm64.dmg` — använd den här på M1/M2/M3/M4.
-- **macOS (Intel):** `Cursor-Bots-*-mac-x64.dmg`. Även `.zip` för båda.
+- **macOS (Intel):** `Cursor-Bots-*-mac-x64.dmg`
 - **Linux:** `Cursor-Bots-*-linux-x64.AppImage`
 - **Windows:** `Cursor-Bots-*-win-x64.exe` (NSIS)
 
@@ -36,7 +36,7 @@ xattr -cr "/Applications/Cursor Bots.app"
 
 **English:** Cancel — do not Move to Trash. Then run `xattr -cr "/Applications/Cursor Bots.app"` and open the app. On Apple Silicon, install the `arm64` `.dmg`.
 
-En release skapas när du pushar en tagg `v*` (t.ex. `v0.1.0`) eller publicerar en GitHub Release. Workflow **Release** kan också köras manuellt under Actions — då landar filerna som artifacts, inte som en GitHub Release.
+En release skapas när du pushar en tagg `v*` (t.ex. `v0.1.1`) eller publicerar en GitHub Release. Workflow **Release** kan också köras manuellt under Actions — då landar filerna som artifacts, inte som en GitHub Release.
 
 ## Kör lokalt
 
